@@ -54,17 +54,19 @@ public:
         std::unique_lock lock(mutex);
         if (stopping.load(std::memory_order::acquire))
             throw std::runtime_error("Cannot add to stopped thread pool");
-        auto& wi = items.emplace_back(std::packaged_task<std::any()>([=] {
+        items.emplace_back(std::packaged_task<std::any()>([=] {
             TResult result = std::invoke(callback, args...);
             return std::any(result);
         }));
+        auto wi = --items.end();
         ++incompleteItems;
         cv.notify_all();
-        return std::async(std::launch::deferred, [&] {
-            auto future = wi.task.get_future();
+        return std::async(std::launch::deferred, [wi, this] {
+            auto future = wi->task.get_future();
             future.wait();
             auto value = future.get();
-            items.remove(wi);
+            std::unique_lock lock(mutex);
+            items.erase(wi);
             return any_cast<TResult>(value);
         });
     }
@@ -77,17 +79,19 @@ public:
         std::unique_lock lock(mutex);
         if (stopping.load(std::memory_order::acquire))
             throw std::runtime_error("Cannot add to stopped thread pool");
-        auto& wi = items.emplace_back(std::packaged_task<std::any()>([=] {
+        items.emplace_back(std::packaged_task<std::any()>([=] {
             TResult result = std::invoke(callback);
             return std::any(result);
         }));
+        auto wi = --items.end();
         ++incompleteItems;
         cv.notify_all();
-        return std::async(std::launch::deferred, [&] {
-            auto future = wi.task.get_future();
+        return std::async(std::launch::deferred, [wi, this] {
+            auto future = wi->task.get_future();
             future.wait();
             auto value = future.get();
-            items.remove(wi);
+            std::unique_lock lock(mutex);
+            items.erase(wi);
             return any_cast<decltype(std::invoke(callback))>(value);
         });
     }
@@ -99,16 +103,18 @@ public:
         std::unique_lock lock(mutex);
         if (stopping.load(std::memory_order::acquire))
             throw std::runtime_error("Cannot add to stopped thread pool");
-        auto& wi = items.emplace_back(std::packaged_task<std::any()>([=] {
+        items.emplace_back(std::packaged_task<std::any()>([=] {
             std::invoke(callback, args...);
             return std::any(0); // dummy value
         }));
+        auto wi = --items.end();
         ++incompleteItems;
         cv.notify_all();
-        return std::async(std::launch::deferred, [&] {
-            auto future = wi.task.get_future();
+        return std::async(std::launch::deferred, [wi, this] {
+            auto future = wi->task.get_future();
             future.wait();
-            items.remove(wi);
+            std::unique_lock lock(mutex);
+            items.erase(wi);
         });
     }
 
