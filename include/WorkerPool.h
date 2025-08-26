@@ -29,6 +29,16 @@ concept nullary_invocable_returns = std::invocable<TCallback> && requires(TCallb
     { std::invoke(std::forward<TCallback>(callback)) } -> std::convertible_to<TResult>;
 };
 
+template<typename TCallback, typename... TArgs>
+concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
+                                 requires(TCallback&& callback, TArgs&&... args)
+                                 {
+                                     {
+                                         std::invoke(std::forward<TCallback>(callback),
+                                                     std::forward<TArgs>(args)...)
+                                     } -> std::same_as<void>;
+                                 };
+
 class WorkerPool {
 public:
     explicit WorkerPool(int maximumParallelism);
@@ -37,9 +47,10 @@ public:
 
     void shutDown();
 
-    template<typename TResult, typename TCallback, typename... TArgs>
-        requires invocable_returns<TCallback, TResult, TArgs...>
-    std::future<TResult> add(TCallback callback, TArgs... args) {
+    // Overload for non-nullary non-void callback
+    template<typename TCallback, typename... TArgs>
+    auto add(TCallback callback, TArgs... args) -> std::future<decltype(std::invoke(callback, args...))> {
+        using TResult = decltype(std::invoke(callback, args...));
         std::unique_lock lock(mutex);
         if (stopping.load(std::memory_order::acquire))
             throw std::runtime_error("Cannot add to stopped thread pool");
@@ -58,9 +69,11 @@ public:
         });
     }
 
-    template<typename TResult, typename TCallback>
-        requires nullary_invocable_returns<TCallback, TResult>
-    std::future<TResult> add(TCallback callback) {
+    // Overload for nullary non-void callbacks
+    template<typename TCallback>
+        requires nullary_invocable_returns<TCallback, decltype(std::invoke(TCallback()))>
+    auto add(TCallback callback) -> std::future<decltype(std::invoke(callback))> {
+        using TResult = decltype(std::invoke(callback));
         std::unique_lock lock(mutex);
         if (stopping.load(std::memory_order::acquire))
             throw std::runtime_error("Cannot add to stopped thread pool");
@@ -75,7 +88,27 @@ public:
             future.wait();
             auto value = future.get();
             items.remove(wi);
-            return any_cast<TResult>(value);
+            return any_cast<decltype(std::invoke(callback))>(value);
+        });
+    }
+
+    // Overload for non-nullary void callbacks
+    template<typename TCallback, typename... TArgs>
+        requires invocable_returns_void<TCallback, TArgs...>
+    auto add(TCallback callback, TArgs... args) -> std::future<void> {
+        std::unique_lock lock(mutex);
+        if (stopping.load(std::memory_order::acquire))
+            throw std::runtime_error("Cannot add to stopped thread pool");
+        auto& wi = items.emplace_back(std::packaged_task<std::any()>([=] {
+            std::invoke(callback, args...);
+            return std::any(0); // dummy value
+        }));
+        ++incompleteItems;
+        cv.notify_all();
+        return std::async(std::launch::deferred, [&] {
+            auto future = wi.task.get_future();
+            future.wait();
+            items.remove(wi);
         });
     }
 
