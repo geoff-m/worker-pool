@@ -10,7 +10,6 @@
 #include <memory>
 #include <atomic>
 #include <stdexcept>
-#include <cstdio>
 #include <list>
 
 template<typename TCallback, typename TResult, typename... TArgs>
@@ -47,26 +46,31 @@ public:
 
     void shutDown();
 
+private:
+    void throwIfStopped() {
+        if (stopping.load(std::memory_order::acquire))
+            throw std::runtime_error("Cannot add to stopped thread pool");
+    }
+
+public:
     // Overload for non-nullary non-void callback
     template<typename TCallback, typename... TArgs>
     auto add(TCallback callback, TArgs... args) -> std::future<decltype(std::invoke(callback, args...))> {
         using TResult = decltype(std::invoke(callback, args...));
-        std::unique_lock lock(mutex);
-        if (stopping.load(std::memory_order::acquire))
-            throw std::runtime_error("Cannot add to stopped thread pool");
-        items.emplace_back(std::packaged_task<std::any()>([=] {
+        std::lock_guard lock(unstartedMutex);
+        throwIfStopped();
+        unstarted.emplace_back(std::packaged_task<std::any()>([=] {
             TResult result = std::invoke(callback, args...);
             return std::any(result);
         }));
-        auto wi = --items.end();
-        ++incompleteItems;
-        cv.notify_all();
+        auto wi = --unstarted.end();
+        cv.notify_one();
         return std::async(std::launch::deferred, [wi, this] {
             auto future = wi->task.get_future();
             future.wait();
             auto value = future.get();
-            std::unique_lock lock(mutex);
-            items.erase(wi);
+            std::lock_guard lock(startedMutex);
+            started.erase(wi);
             return any_cast<TResult>(value);
         });
     }
@@ -76,23 +80,21 @@ public:
         requires nullary_invocable_returns<TCallback, decltype(std::invoke(TCallback()))>
     auto add(TCallback callback) -> std::future<decltype(std::invoke(callback))> {
         using TResult = decltype(std::invoke(callback));
-        std::unique_lock lock(mutex);
-        if (stopping.load(std::memory_order::acquire))
-            throw std::runtime_error("Cannot add to stopped thread pool");
-        items.emplace_back(std::packaged_task<std::any()>([=] {
+        std::lock_guard lock(unstartedMutex);
+        throwIfStopped();
+        unstarted.emplace_back(std::packaged_task<std::any()>([=] {
             TResult result = std::invoke(callback);
             return std::any(result);
         }));
-        auto wi = --items.end();
-        ++incompleteItems;
-        cv.notify_all();
+        auto wi = --unstarted.end();
+        cv.notify_one();
         return std::async(std::launch::deferred, [wi, this] {
             auto future = wi->task.get_future();
             future.wait();
             auto value = future.get();
-            std::unique_lock lock(mutex);
-            items.erase(wi);
-            return any_cast<decltype(std::invoke(callback))>(value);
+            std::lock_guard lock(startedMutex);
+            started.erase(wi);
+            return any_cast<TResult>(value);
         });
     }
 
@@ -100,21 +102,19 @@ public:
     template<typename TCallback, typename... TArgs>
         requires invocable_returns_void<TCallback, TArgs...>
     auto add(TCallback callback, TArgs... args) -> std::future<void> {
-        std::unique_lock lock(mutex);
-        if (stopping.load(std::memory_order::acquire))
-            throw std::runtime_error("Cannot add to stopped thread pool");
-        items.emplace_back(std::packaged_task<std::any()>([=] {
+        std::lock_guard lock(unstartedMutex);
+        throwIfStopped();
+        unstarted.emplace_back(std::packaged_task<std::any()>([=] {
             std::invoke(callback, args...);
             return std::any(0); // dummy value
         }));
-        auto wi = --items.end();
-        ++incompleteItems;
-        cv.notify_all();
+        auto wi = --unstarted.end();
+        cv.notify_one();
         return std::async(std::launch::deferred, [wi, this] {
             auto future = wi->task.get_future();
             future.wait();
-            std::unique_lock lock(mutex);
-            items.erase(wi);
+            std::lock_guard lock(startedMutex);
+            started.erase(wi);
         });
     }
 
@@ -123,7 +123,6 @@ private:
 
     struct WorkItem {
         std::packaged_task<std::any()> task;
-        bool started = false;
 
         explicit WorkItem(std::packaged_task<std::any()> task)
             : task(std::move(task)), id(lastId++) {
@@ -138,35 +137,31 @@ private:
     };
 
     std::condition_variable cv;
-    std::mutex mutex;
-    std::list<WorkItem> items;
-    std::atomic<size_t> incompleteItems = 0;
+    std::mutex unstartedMutex;
+    std::list<WorkItem> unstarted;
+    std::mutex startedMutex;
+    std::list<WorkItem> started;
 
     std::vector<std::thread> threads;
     std::atomic<bool> stopping = false;
 
     void work() {
         while (true) {
-            std::unique_lock lock(mutex);
-            cv.wait(lock, [&]() {
-                return incompleteItems.load(std::memory_order::acquire) > 0
+            std::unique_lock unstartedLock(unstartedMutex);
+            cv.wait(unstartedLock, [&]() {
+                return !unstarted.empty()
                        || stopping.load(std::memory_order::acquire);
             });
-            if (incompleteItems.load(std::memory_order::acquire) == 0)
+            if (unstarted.empty())
                 return; // stopping == true and nothing to do
 
-            // Find first incomplete item.
-            for (auto& item: items) {
-                if (item.started)
-                    continue;
-
-                item.started = true;
-                lock.unlock();
-                --incompleteItems;
-                cv.notify_all();
-                item.task();
-                break;
+            const auto item = unstarted.begin(); {
+                // Move item to started list.
+                std::lock_guard startedLock(startedMutex);
+                started.splice(started.begin(), unstarted, item);
             }
+            unstartedLock.unlock();
+            item->task();
         }
     }
 };
