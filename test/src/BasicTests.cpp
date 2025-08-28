@@ -99,7 +99,7 @@ TEST(BasicTests, AddAfterShutdown) {
 TEST(StressTests, Parallelism) {
     // This test tries to wait for WAIT_SECONDS seconds using threadCount threads.
     // We assert that this takes about WAIT_SECONDS in total.
-    const unsigned int threadCount = std::min(1u, std::thread::hardware_concurrency());
+    const unsigned int threadCount = std::max(1u, std::thread::hardware_concurrency());
     std::cout << "Using threadCount=" << threadCount << std::endl;
     WorkerPool pool(threadCount);
     std::vector<std::future<void>> futures;
