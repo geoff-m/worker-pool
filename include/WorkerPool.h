@@ -12,22 +12,6 @@
 #include <stdexcept>
 #include <list>
 
-template<typename TCallback, typename TResult, typename... TArgs>
-concept invocable_returns = std::invocable<TCallback, TArgs...> &&
-                            requires(TCallback&& callback, TArgs&&... args)
-                            {
-                                {
-                                    std::invoke(std::forward<TCallback>(callback),
-                                                std::forward<TArgs>(args)...)
-                                } -> std::convertible_to<TResult>;
-                            };
-
-template<typename TCallback, typename TResult>
-concept nullary_invocable_returns = std::invocable<TCallback> && requires(TCallback&& callback)
-{
-    { std::invoke(std::forward<TCallback>(callback)) } -> std::convertible_to<TResult>;
-};
-
 template<typename TCallback, typename... TArgs>
 concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                  requires(TCallback&& callback, TArgs&&... args)
@@ -53,7 +37,7 @@ private:
     }
 
 public:
-    // Overload for non-nullary non-void callback
+    // Overload for non-void callback
     template<typename TCallback, typename... TArgs>
     auto add(TCallback callback, TArgs... args) -> std::future<decltype(std::invoke(callback, args...))> {
         using TResult = decltype(std::invoke(callback, args...));
@@ -75,30 +59,7 @@ public:
         });
     }
 
-    // Overload for nullary non-void callbacks
-    template<typename TCallback>
-        requires nullary_invocable_returns<TCallback, decltype(std::invoke(TCallback()))>
-    auto add(TCallback callback) -> std::future<decltype(std::invoke(callback))> {
-        using TResult = decltype(std::invoke(callback));
-        std::lock_guard lock(unstartedMutex);
-        throwIfStopped();
-        unstarted.emplace_back(std::packaged_task<std::any()>([=] {
-            TResult result = std::invoke(callback);
-            return std::any(result);
-        }));
-        auto wi = --unstarted.end();
-        cv.notify_one();
-        return std::async(std::launch::deferred, [wi, this] {
-            auto future = wi->task.get_future();
-            future.wait();
-            auto value = future.get();
-            std::lock_guard lock(startedMutex);
-            started.erase(wi);
-            return any_cast<TResult>(value);
-        });
-    }
-
-    // Overload for non-nullary void callbacks
+    // Overload for void callback
     template<typename TCallback, typename... TArgs>
         requires invocable_returns_void<TCallback, TArgs...>
     auto add(TCallback callback, TArgs... args) -> std::future<void> {
