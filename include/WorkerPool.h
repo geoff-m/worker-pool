@@ -27,12 +27,13 @@ class WorkerPool {
 
 public:
     explicit WorkerPool(int maximumParallelism) {
+        if (maximumParallelism <= 0)
+            throw std::invalid_argument("maximumParallelism must be at least 1");
         threads.reserve(maximumParallelism);
         for (int i = 0; i < maximumParallelism; i++) {
             threads.emplace_back([&] { work(); });
         }
     }
-
 
     ~WorkerPool() {
         shutDown();
