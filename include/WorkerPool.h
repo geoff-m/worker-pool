@@ -23,15 +23,31 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                  };
 
 class WorkerPool {
+    std::vector<std::thread> threads;
+
 public:
-    explicit WorkerPool(int maximumParallelism);
+    explicit WorkerPool(int maximumParallelism) {
+        threads.reserve(maximumParallelism);
+        for (int i = 0; i < maximumParallelism; i++) {
+            threads.emplace_back([&] { work(); });
+        }
+    }
 
-    ~WorkerPool();
 
-    void shutDown();
+    ~WorkerPool() {
+        shutDown();
+        for (auto& thread: threads) {
+            thread.join();
+        }
+    }
+
+    void shutDown() {
+        stopping.store(true, std::memory_order::release);
+        cv.notify_all();
+    }
 
 private:
-    void throwIfStopped() {
+    void throwIfStopped() const {
         if (stopping.load(std::memory_order::acquire))
             throw std::runtime_error("Cannot add to stopped thread pool");
     }
@@ -43,7 +59,7 @@ public:
         using TResult = decltype(std::invoke(callback, args...));
         std::lock_guard lock(unstartedMutex);
         throwIfStopped();
-        unstarted.emplace_back(std::packaged_task<std::any()>([=] {
+        unstarted.emplace_back(lastItemId++, std::packaged_task<std::any()>([=] {
             TResult result = std::invoke(callback, args...);
             return std::any(result);
         }));
@@ -65,14 +81,14 @@ public:
     auto add(TCallback callback, TArgs... args) -> std::future<void> {
         std::lock_guard lock(unstartedMutex);
         throwIfStopped();
-        unstarted.emplace_back(std::packaged_task<std::any()>([=] {
+        unstarted.emplace_back(lastItemId++, std::packaged_task<std::any()>([=] {
             std::invoke(callback, args...);
             return std::any(0); // dummy value
         }));
         auto wi = --unstarted.end();
         cv.notify_one();
         return std::async(std::launch::deferred, [wi, this] {
-            auto future = wi->task.get_future();
+            const auto future = wi->task.get_future();
             future.wait();
             std::lock_guard lock(startedMutex);
             started.erase(wi);
@@ -80,16 +96,15 @@ public:
     }
 
 private:
-    int maximumParallelism;
+    size_t lastItemId = 0;
 
     struct WorkItem {
         std::packaged_task<std::any()> task;
 
-        explicit WorkItem(std::packaged_task<std::any()> task)
-            : task(std::move(task)), id(lastId++) {
+        explicit WorkItem(size_t id, std::packaged_task<std::any()> task)
+            : task(std::move(task)), id(id) {
         }
 
-        static size_t lastId;
         size_t id;
 
         bool operator==(const WorkItem& other) const {
@@ -103,7 +118,6 @@ private:
     std::mutex startedMutex;
     std::list<WorkItem> started;
 
-    std::vector<std::thread> threads;
     std::atomic<bool> stopping = false;
 
     void work() {
