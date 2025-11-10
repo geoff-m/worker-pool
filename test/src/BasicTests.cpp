@@ -20,7 +20,7 @@ TEST(BasicTests, IntLambda) {
     constexpr auto VALUE = 123;
     auto intFuture = pool.add([] { return VALUE; });
     intFuture.wait();
-    EXPECT_EQ(VALUE, intFuture.get());
+    EXPECT_EQ(VALUE, intFuture.getResult());
 }
 
 TEST(BasicTests, StringLambda) {
@@ -28,7 +28,7 @@ TEST(BasicTests, StringLambda) {
     constexpr auto VALUE = "hello";
     auto stringFuture = pool.add([] { return VALUE; });
     stringFuture.wait();
-    EXPECT_EQ(VALUE, stringFuture.get());
+    EXPECT_EQ(VALUE, stringFuture.getResult());
 }
 
 int add(int x, int y) {
@@ -41,7 +41,7 @@ TEST(BasicTests, BinaryFunction) {
     constexpr auto Y = 3;
     auto binaryFuture = pool.add(&add, X, Y);
     binaryFuture.wait();
-    EXPECT_EQ(X + Y, binaryFuture.get());
+    EXPECT_EQ(X + Y, binaryFuture.getResult());
 }
 
 TEST(BasicTests, BinaryLambda) {
@@ -51,7 +51,7 @@ TEST(BasicTests, BinaryLambda) {
     auto binaryLambdaFuture = pool.add([](int x, int y) { return x + y; },
                                        X, Y);
     binaryLambdaFuture.wait();
-    EXPECT_EQ(X + Y, binaryLambdaFuture.get());
+    EXPECT_EQ(X + Y, binaryLambdaFuture.getResult());
 }
 
 TEST(BasicTests, VoidLambda) {
@@ -102,7 +102,7 @@ TEST(StressTests, Parallelism) {
     const unsigned int threadCount = std::max(1u, std::thread::hardware_concurrency());
     std::cout << "Using threadCount=" << threadCount << std::endl;
     WorkerPool pool(threadCount);
-    std::vector<std::future<void>> futures;
+    std::vector<WorkerPool::Task<void>> futures;
     constexpr auto WAIT_SECONDS = 1;
     for (size_t i = 1; i <= threadCount; ++i) {
         futures.emplace_back(pool.add([=] { std::this_thread::sleep_for(std::chrono::seconds(WAIT_SECONDS)); }));
