@@ -68,7 +68,7 @@ TEST(BasicTests, BinaryVoidLambda) {
     int binaryVoidSideEffect = 0;
     constexpr auto X = 2;
     constexpr auto Y = 3;
-    auto binaryVoidFuture = pool.add([&binaryVoidSideEffect](int x, int y) {
+    auto binaryVoidFuture = pool.add([&binaryVoidSideEffect](const int x, const int y) {
         binaryVoidSideEffect = x + y;
     }, X, Y);
     binaryVoidFuture.wait();

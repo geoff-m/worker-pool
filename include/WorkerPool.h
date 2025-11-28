@@ -18,7 +18,7 @@
 
 template<typename TCallback, typename... TArgs>
 concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
-                                 requires(TCallback&& callback, TArgs&&... args)
+                                 requires(TCallback &&callback, TArgs &&... args)
                                  {
                                      {
                                          std::invoke(std::forward<TCallback>(callback),
@@ -27,7 +27,7 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                  };
 
 class WorkerPool;
-static thread_local WorkerPool* threadOwningPool;
+static thread_local WorkerPool *threadOwningPool;
 
 class WorkerPool {
     std::mutex threadsMutex;
@@ -67,7 +67,7 @@ public:
     ~WorkerPool() {
         shutDown();
         std::lock_guard lock(threadsMutex);
-        for (auto& thread: threads) {
+        for (auto &thread: threads) {
             thread.join();
         }
     }
@@ -81,7 +81,7 @@ private:
     std::condition_variable cv;
     std::mutex unstartedMutex;
     class WorkItem;
-    std::list<std::shared_ptr<WorkItem>> unstarted;
+    std::list<std::shared_ptr<WorkItem> > unstarted;
     std::atomic<bool> stopping = false;
 
     void throwIfStopped() const {
@@ -91,14 +91,7 @@ private:
 
     void unsafeAddThread() {
         readyThreads.fetch_add(1);
-        threads.emplace_back();
-        auto end = std::prev(threads.end());
-        new(&*end) std::thread([this, end] { work(end); });
-    }
-
-    void unsafeDeleteThread(const std::list<std::thread>::iterator thread) {
-        readyThreads.fetch_sub(1);
-        threads.erase(thread);
+        threads.emplace_back([this] { work(); });
     }
 
     class WorkItem {
@@ -112,13 +105,13 @@ private:
 
         size_t id;
         std::atomic<State> state;
-        WorkerPool& owningPool;
+        WorkerPool &owningPool;
         std::packaged_task<std::any()> task;
         std::future<std::any> future;
         decltype(unstarted)::iterator thisIterator;
 
     public:
-        explicit WorkItem(WorkerPool& owner,
+        explicit WorkItem(WorkerPool &owner,
                           size_t id, std::packaged_task<std::any()> task)
             : id(id), owningPool(owner), task(std::move(task)), future(this->task.get_future()) {
             state.store(State::Unstarted, std::memory_order::release);
@@ -128,27 +121,35 @@ private:
             this->thisIterator = self;
         }
 
-        bool operator==(const WorkItem& other) const {
+        bool operator==(const WorkItem &other) const {
             return id == other.id && &owningPool == &other.owningPool;
         }
 
-        void execute() {
+        bool tryExecute() {
             // Remove from pool's unstarted list
             {
                 std::scoped_lock lock(owningPool.unstartedMutex);
                 State oldState = State::Unstarted;
                 if (!state.compare_exchange_strong(oldState, State::Executing))
-                    return;
+                    return false;
                 owningPool.unstarted.erase(thisIterator);
             }
-            printf("%s Beginning task %p on pool thread %d\n",
+            printf("%s Thread %d beginning task %p\n",
                    std::to_string(
                        std::chrono::duration_cast<std::chrono::milliseconds>(
                            std::chrono::system_clock::now().time_since_epoch()).count()).c_str(),
-                   reinterpret_cast<const void*>(this), gettid());
+                   gettid(),
+                   reinterpret_cast<const void *>(this));
 
             task();
             state.store(State::Done, std::memory_order::release);
+            printf("%s Thread %d finished  task %p\n",
+                   std::to_string(
+                       std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::system_clock::now().time_since_epoch()).count()).c_str(),
+                   gettid(),
+                   reinterpret_cast<const void *>(this));
+            return true;
         }
 
         std::any getResult() {
@@ -162,7 +163,7 @@ public:
         friend class WorkerPool;
         std::shared_ptr<WorkItem> wi;
 
-        explicit Task(const std::shared_ptr<WorkItem>& wrapped) : wi(wrapped) {
+        explicit Task(const std::shared_ptr<WorkItem> &wrapped) : wi(wrapped) {
         }
 
     public:
@@ -232,7 +233,7 @@ private:
 public:
     // todo: rework this class to return WorkItems (make WorkItem public),
     // instead of std::future so that this function can be used on them?
-    void wait(WorkItem& workItem) {
+    void wait(WorkItem &workItem) {
         auto state = workItem.state.load(std::memory_order::acquire);
         switch (state) {
             default:
@@ -249,9 +250,15 @@ public:
                 //     if (!workItem.state.compare_exchange_strong(oldState, WorkItem::State::Executing))
                 //         return wait(workItem); // Failed to change state to executing. Retry this operation.
                 // }
-                printf("Synchronously executing task\n");
-                workItem.execute();
-                return;
+                printf("%s Thread %d will synchronously execute task %p\n",
+                       std::to_string(
+                           std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::system_clock::now().time_since_epoch()).count()).c_str(),
+                       gettid(),
+                       reinterpret_cast<const void *>(&workItem));
+                if (workItem.tryExecute())
+                    return;
+                return wait(workItem);
             }
             case WorkItem::State::Executing: {
                 // Waiting for an item that's currently being executed.
@@ -284,7 +291,7 @@ public:
         return stopping.load(std::memory_order::acquire) || threadIsExtra();
     }
 
-    void work(decltype(threads)::iterator thisThread) {
+    void work() {
         threadOwningPool = this;
         while (true) {
             std::unique_lock unstartedLock(unstartedMutex);
@@ -293,28 +300,12 @@ public:
             });
 
             if (stopping.load(std::memory_order::acquire) && unstarted.empty())
-                return; // No need to delete our thread list entry.
-            if (threadIsExtra()) {
-                std::unique_lock threadLock(threadsMutex, std::defer_lock);
-                while (!threadLock.try_lock()) {
-                    if (stopping.load(std::memory_order::acquire)) {
-                        // We don't hold the thread lock, but we're stopping.
-                        // Just exit. No need to delete our thread list entry.
-                        return;
-                    }
-                    std::this_thread::yield();
-                }
-                // We hold the thread lock.
-                if (!stopping.load(std::memory_order::acquire)) {
-                    unsafeDeleteThread(thisThread);
-                }
                 return;
-            }
 
             auto item = unstarted.begin();
             unstartedLock.unlock();
 
-            item->get()->execute();
+            item->get()->tryExecute();
         }
     }
 };
