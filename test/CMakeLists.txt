@@ -5,7 +5,6 @@ add_executable(test-worker-pool
 )
 
 set_target_properties(test-worker-pool PROPERTIES CXX_STANDARD 20)
-
 target_link_libraries(test-worker-pool
         PRIVATE worker-pool
         PRIVATE GTest::gtest_main)

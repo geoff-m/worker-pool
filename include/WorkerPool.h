@@ -13,8 +13,10 @@
 #include <list>
 #include <cstdio>
 #include <chrono>
+#include <algorithm>
 #include "WorkerPool.h"
 
+//#define WORKER_POOL_LOGGING
 
 template<typename TCallback, typename... TArgs>
 concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
@@ -125,15 +127,23 @@ private:
             return id == other.id && &owningPool == &other.owningPool;
         }
 
-        bool tryExecute() {
-            // Remove from pool's unstarted list
-            {
-                std::scoped_lock lock(owningPool.unstartedMutex);
-                State oldState = State::Unstarted;
-                if (!state.compare_exchange_strong(oldState, State::Executing))
-                    return false;
-                owningPool.unstarted.erase(thisIterator);
+        [[nodiscard]] bool trySetExecuting() {
+            State oldState = State::Unstarted;
+            if (state.compare_exchange_strong(oldState, State::Executing)) {
+#ifdef WORKER_POOL_LOGGING
+                printf("Thread %d: trySetExecuting succeeded for task %p\n",
+                       gettid(), reinterpret_cast<const void*>(this));
+#endif
+                return true;
             }
+#ifdef WORKER_POOL_LOGGING
+            printf("Thread %d: trySetExecuting failed for task %p\n",
+                   gettid(), reinterpret_cast<const void*>(this));
+#endif
+            return false;
+        }
+
+        void tryExecute() {
 #ifdef WORKER_POOL_LOGGING
             printf("%s Thread %d beginning task %p\n",
                    std::to_string(
@@ -152,7 +162,6 @@ private:
                    gettid(),
                    reinterpret_cast<const void*>(this));
 #endif
-            return true;
         }
 
         std::any getResult() {
@@ -207,7 +216,6 @@ public:
         }));
         unstarted.emplace_back(wi);
         wi->enableDeletion(std::prev(unstarted.end()));
-
         cv.notify_one();
         return Task<void>(wi);
     }
@@ -235,27 +243,34 @@ public:
                        gettid(),
                        reinterpret_cast<const void*>(&workItem));
 #endif
-                if (workItem.tryExecute())
+                std::unique_lock lock(unstartedMutex);
+                if (workItem.trySetExecuting()) {
+                    unstarted.erase(workItem.thisIterator);
+                    workItem.enableDeletion(unstarted.end());
+                    lock.unlock();
+                    workItem.tryExecute();
                     return;
+                }
                 return wait(workItem);
             }
             case WorkItem::State::Executing: {
                 // Waiting for an item that's currently being executed.
-                if (&workItem.owningPool == this && threadOwningPool == this)
-                {
+                if (&workItem.owningPool == this && threadOwningPool == this) {
                     // We are about to block a pool thread, so consider creating an extra thread.
                     if (readyThreads.load(std::memory_order::acquire) < targetParallelism + maxWaiterThreads) {
                         // We have quota to create an extra thread to make up for waiting.
-                        printf("wait called from pool thread: creating extra thread\n");
+#ifdef WORKER_POOL_LOGGING
+                        printf("wait called from pool thread %d: creating extra thread\n", gettid());
+#endif
                         std::lock_guard lock(threadsMutex);
                         unsafeAddThread();
                     }
 #ifdef WORKER_POOL_LOGGING
-                    printf("wait called from pool thread: not creating extra thread\n");
+                    printf("wait called from pool thread %d: not creating extra thread\n", gettid());
 #endif
                 } else {
 #ifdef WORKER_POOL_LOGGING
-                    printf("wait called from non-pool thread\n");
+                    printf("wait called from non-pool thread %d\n", gettid());
 #endif
                 }
                 // Block this thread.
@@ -284,9 +299,16 @@ public:
             if (stopping.load(std::memory_order::acquire) && unstarted.empty())
                 return;
 
-            const auto item = unstarted.begin();
-            unstartedLock.unlock();
-            item->get()->tryExecute();
+            for (auto item = unstarted.begin(); item != unstarted.end(); ++item) {
+                if (!item->get()->trySetExecuting())
+                    continue;
+                auto itemValue = *item;
+                unstarted.erase(item);
+                itemValue->enableDeletion(unstarted.end());
+                unstartedLock.unlock();
+                itemValue->tryExecute();
+                break;
+            }
         }
     }
 };
