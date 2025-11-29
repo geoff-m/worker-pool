@@ -11,9 +11,11 @@
 #include <atomic>
 #include <stdexcept>
 #include <list>
+
+#ifdef WORKER_POOL_LOGGING
+#include <cstdarg>
 #include <cstdio>
-#include <chrono>
-#include "WorkerPool.h"
+#endif
 
 template<typename TCallback, typename... TArgs>
 concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
@@ -27,6 +29,23 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
 
 class WorkerPool;
 static thread_local WorkerPool *threadOwningPool;
+
+static void log([[maybe_unused]] const char* format...) {
+#ifdef WORKER_POOL_LOGGING
+    va_list args;
+    va_start(args, format);
+    char buf[256];
+    buf[sizeof(buf) - 1] = '\0';
+    const auto timeNanos = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                           std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    const auto threadKind = threadOwningPool != nullptr ? "pool" : "non-pool";
+    const auto prefixLength = snprintf(buf, sizeof(buf), "%ld %s thread %lu: ",
+        timeNanos, threadKind, pthread_self());
+    vsnprintf(buf + prefixLength, sizeof(buf) - prefixLength, format, args);
+    puts(buf);
+    va_end(args);
+#endif
+}
 
 class WorkerPool {
     std::mutex threadsMutex;
@@ -130,38 +149,18 @@ private:
         [[nodiscard]] bool trySetExecuting() {
             State oldState = State::Unstarted;
             if (state.compare_exchange_strong(oldState, State::Executing)) {
-#ifdef WORKER_POOL_LOGGING
-                printf("Thread %d: trySetExecuting succeeded for task %p\n",
-                       gettid(), reinterpret_cast<const void*>(this));
-#endif
+                log("trySetExecuting succeeded for task %p", reinterpret_cast<const void*>(this));
                 return true;
             }
-#ifdef WORKER_POOL_LOGGING
-            printf("Thread %d: trySetExecuting failed for task %p\n",
-                   gettid(), reinterpret_cast<const void*>(this));
-#endif
+            log("trySetExecuting failed for task %p", reinterpret_cast<const void*>(this));
             return false;
         }
 
         void execute() {
-#ifdef WORKER_POOL_LOGGING
-            printf("%s Thread %d beginning task %p\n",
-                   std::to_string(
-                       std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::system_clock::now().time_since_epoch()).count()).c_str(),
-                   gettid(),
-                   reinterpret_cast<const void*>(this));
-#endif
+            log("Beginning task %p", reinterpret_cast<const void*>(this));
             task();
             state.store(State::Done, std::memory_order::release);
-#ifdef WORKER_POOL_LOGGING
-            printf("%s Thread %d finished  task %p\n",
-                   std::to_string(
-                       std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::system_clock::now().time_since_epoch()).count()).c_str(),
-                   gettid(),
-                   reinterpret_cast<const void*>(this));
-#endif
+            log("Finished task %p", reinterpret_cast<const void*>(this));
         }
 
         std::any getResult() {
@@ -235,14 +234,7 @@ public:
             case WorkItem::State::Unstarted: {
                 // Waiting for an item that hasn't begun to be executed yet.
                 // Execute it synchronously.
-#ifdef WORKER_POOL_LOGGING
-                printf("%s Thread %d will synchronously execute task %p\n",
-                       std::to_string(
-                           std::chrono::duration_cast<std::chrono::milliseconds>(
-                               std::chrono::system_clock::now().time_since_epoch()).count()).c_str(),
-                       gettid(),
-                       reinterpret_cast<const void*>(&workItem));
-#endif
+                log("Wait called for unstarted task %p", reinterpret_cast<const void*>(&workItem));
                 bool doExecute = false;
                 {
                     std::lock_guard lock(unstartedMutex);
@@ -264,19 +256,13 @@ public:
                     // We are about to block a pool thread, so consider creating an extra thread.
                     if (readyThreads.load(std::memory_order::acquire) < targetParallelism + maxWaiterThreads) {
                         // We have quota to create an extra thread to make up for waiting.
-#ifdef WORKER_POOL_LOGGING
-                        printf("wait called from pool thread %d: creating extra thread\n", gettid());
-#endif
+                        log("Wait called: creating extra thread");
                         std::lock_guard lock(threadsMutex);
                         unsafeAddThread();
                     }
-#ifdef WORKER_POOL_LOGGING
-                    printf("wait called from pool thread %d: not creating extra thread\n", gettid());
-#endif
+                    log("Wait called: not creating extra thread because no quota");
                 } else {
-#ifdef WORKER_POOL_LOGGING
-                    printf("wait called from non-pool thread %d\n", gettid());
-#endif
+                    log("Wait called: not creating extra thread because waiter is a non-pool thread");
                 }
                 // Block this thread.
                 workItem.future.wait();
