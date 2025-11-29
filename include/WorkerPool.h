@@ -72,7 +72,10 @@ public:
     }
 
     void shutDown() {
-        stopping.store(true, std::memory_order::release);
+        {
+            std::lock_guard lock(unstartedMutex);
+            stopping.store(true, std::memory_order::release);
+        }
         cv.notify_all();
     }
 
