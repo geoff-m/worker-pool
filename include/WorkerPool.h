@@ -13,10 +13,7 @@
 #include <list>
 #include <cstdio>
 #include <chrono>
-#include <algorithm>
 #include "WorkerPool.h"
-
-//#define WORKER_POOL_LOGGING
 
 template<typename TCallback, typename... TArgs>
 concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
@@ -143,7 +140,7 @@ private:
             return false;
         }
 
-        void tryExecute() {
+        void execute() {
 #ifdef WORKER_POOL_LOGGING
             printf("%s Thread %d beginning task %p\n",
                    std::to_string(
@@ -243,12 +240,17 @@ public:
                        gettid(),
                        reinterpret_cast<const void*>(&workItem));
 #endif
-                std::unique_lock lock(unstartedMutex);
-                if (workItem.trySetExecuting()) {
-                    unstarted.erase(workItem.thisIterator);
-                    workItem.enableDeletion(unstarted.end());
-                    lock.unlock();
-                    workItem.tryExecute();
+                bool doExecute = false;
+                {
+                    std::lock_guard lock(unstartedMutex);
+                    if (workItem.trySetExecuting()) {
+                        unstarted.erase(workItem.thisIterator);
+                        workItem.enableDeletion(unstarted.end());
+                        doExecute = true;
+                    }
+                }
+                if (doExecute) {
+                    workItem.execute();
                     return;
                 }
                 return wait(workItem);
@@ -306,7 +308,7 @@ public:
                 unstarted.erase(item);
                 itemValue->enableDeletion(unstarted.end());
                 unstartedLock.unlock();
-                itemValue->tryExecute();
+                itemValue->execute();
                 break;
             }
         }
