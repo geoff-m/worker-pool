@@ -9,6 +9,7 @@
 #include <memory>
 #include <atomic>
 #include <list>
+#include <utility>
 
 #ifdef WORKER_POOL_LOGGING
 #include <cstdarg>
@@ -33,17 +34,43 @@ class WorkerPool {
     std::list<std::thread> threads;
     const size_t targetParallelism;
     const size_t maxWaiterThreads;
+    const std::function<std::thread(std::function<void()>)> threadFactory;
     const bool allowWorkOffPoolThreads;
 
 public:
     /**
-     *
-     * @param targetParallelism The target number of threads to use for simultaneous work.
-     * @param maxWaiterThreads The maximum number of extra threads to create when wait is called by a pool thread.
-     */
-    WorkerPool(int targetParallelism, int maxWaiterThreads, bool allowWorkOffPoolThreads = true);
+ *
+ * @param targetParallelism The target number of threads to use for simultaneous work.
+ * @param maxWaiterThreads The maximum number of extra threads to create when wait is called by a pool thread.
+ * @param threadFactory A callable like std::thread(callback)
+ * @param allowWorkOffPoolThreads Whether this pool is allowed to execute callbacks in non-pool waiter threads.
+ */
+    template<typename ThreadFactory>
+    WorkerPool(int targetParallelism, int maxWaiterThreads, ThreadFactory threadFactory,
+               bool allowWorkOffPoolThreads = true)
+        : targetParallelism(targetParallelism),
+          maxWaiterThreads(maxWaiterThreads),
+          threadFactory([threadFactory](const std::function<void()>& callback) {
+              return threadFactory(std::move(callback));
+          }),
+          allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
+        if (targetParallelism <= 0)
+            throw std::invalid_argument("Target parallelism must be at least 1");
+        if (maxWaiterThreads < 0)
+            throw std::invalid_argument("Maximum waiter threads must be nonnegative");
+        std::lock_guard lock(threadsMutex);
+        for (int i = 0; i < targetParallelism; i++)
+            unsafeAddThread();
+    }
 
-    explicit WorkerPool(int targetParallelism);
+    WorkerPool(int targetParallelism, int maxWaiterThreads, bool allowWorkOffPoolThreads = true) : WorkerPool(
+        targetParallelism, maxWaiterThreads,
+        [](const std::function<void()>& callback) { return std::thread(callback); },
+        allowWorkOffPoolThreads) {
+    }
+
+    explicit WorkerPool(int targetParallelism) : WorkerPool(targetParallelism, targetParallelism) {
+    }
 
     ~WorkerPool();
 

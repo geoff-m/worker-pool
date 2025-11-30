@@ -22,30 +22,6 @@ static void log([[maybe_unused]] const char* format...) {
 #endif
 }
 
-WorkerPool::WorkerPool(int targetParallelism, int maxWaiterThreads, bool allowWorkOffPoolThreads)
-    : targetParallelism(targetParallelism),
-      maxWaiterThreads(maxWaiterThreads),
-      allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
-    if (targetParallelism <= 0)
-        throw std::invalid_argument("Target parallelism must be at least 1");
-    if (maxWaiterThreads < 0)
-        throw std::invalid_argument("Maximum waiter threads must be nonnegative");
-    std::lock_guard lock(threadsMutex);
-    for (int i = 0; i < targetParallelism; i++)
-        unsafeAddThread();
-}
-
-WorkerPool::WorkerPool(int targetParallelism)
-    : targetParallelism(targetParallelism),
-      maxWaiterThreads(targetParallelism),
-      allowWorkOffPoolThreads(true) {
-    if (targetParallelism <= 0)
-        throw std::invalid_argument("Target parallelism must be at least 1");
-    std::lock_guard lock(threadsMutex);
-    for (int i = 0; i < targetParallelism; i++)
-        unsafeAddThread();
-}
-
 WorkerPool::~WorkerPool() {
     shutDown();
     std::lock_guard lock(threadsMutex);
@@ -69,7 +45,7 @@ void WorkerPool::throwIfStopped() const {
 
 void WorkerPool::unsafeAddThread() {
     readyThreads.fetch_add(1);
-    threads.emplace_back([this] { work(); });
+    threads.emplace_back(threadFactory([this] { work(); }));
 }
 
 WorkerPool::WorkItem::WorkItem(WorkerPool& owner,

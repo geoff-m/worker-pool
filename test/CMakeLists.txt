@@ -5,6 +5,7 @@ add_executable(test-worker-pool
         src/PreventWorkOffPoolThreads.cpp
         src/include/TestUtils.h
         src/TestUtils.cpp
+        src/TestThreadFactory.cpp
 )
 
 target_include_directories(test-worker-pool PRIVATE src/include)
