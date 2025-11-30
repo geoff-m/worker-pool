@@ -30,17 +30,17 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
 class WorkerPool;
 static thread_local WorkerPool *threadOwningPool;
 
-static void log([[maybe_unused]] const char* format...) {
+static void log([[maybe_unused]] const char *format...) {
 #ifdef WORKER_POOL_LOGGING
     va_list args;
     va_start(args, format);
     char buf[256];
     buf[sizeof(buf) - 1] = '\0';
     const auto timeNanos = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                           std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        std::chrono::high_resolution_clock::now().time_since_epoch()).count();
     const auto threadKind = threadOwningPool != nullptr ? "pool" : "non-pool";
     const auto prefixLength = snprintf(buf, sizeof(buf), "%ld %s thread %lu: ",
-        timeNanos, threadKind, pthread_self());
+                                       timeNanos, threadKind, pthread_self());
     vsnprintf(buf + prefixLength, sizeof(buf) - prefixLength, format, args);
     puts(buf);
     va_end(args);
@@ -198,8 +198,8 @@ public:
             TResult result = std::invoke(callback, args...);
             return std::any(result);
         }));
-        unstarted.emplace_back(wi);
-        wi->enableDeletion(std::prev(unstarted.end()));
+        const auto it = unstarted.emplace(unstarted.end(), wi);
+        wi->enableDeletion(it);
         cv.notify_one();
         return Task<TResult>(wi);
     }
@@ -214,8 +214,8 @@ public:
             std::invoke(callback, args...);
             return std::any(0); // dummy value
         }));
-        unstarted.emplace_back(wi);
-        wi->enableDeletion(std::prev(unstarted.end()));
+        const auto it = unstarted.emplace(unstarted.end(), wi);
+        wi->enableDeletion(it);
         cv.notify_one();
         return Task<void>(wi);
     }
@@ -225,49 +225,51 @@ private:
 
 public:
     void wait(WorkItem& workItem) {
-        auto state = workItem.state.load(std::memory_order::acquire);
-        switch (state) {
-            default:
-            case WorkItem::State::Done:
-                // Waiting for an item that's already done.
-                // Return immediately.
-                return;
-            case WorkItem::State::Unstarted: {
-                // Waiting for an item that hasn't begun to be executed yet.
-                // Execute it synchronously.
-                log("Wait called for unstarted task %p", reinterpret_cast<const void*>(&workItem));
-                bool doExecute = false;
-                {
-                    std::lock_guard lock(unstartedMutex);
-                    if (workItem.trySetExecuting()) {
-                        unstarted.erase(workItem.thisIterator);
-                        workItem.enableDeletion(unstarted.end());
-                        doExecute = true;
+        // retry loop
+        while (true) {
+            auto state = workItem.state.load(std::memory_order::acquire);
+            switch (state) {
+                default:
+                case WorkItem::State::Done:
+                    // Waiting for an item that's already done.
+                    // Return immediately.
+                    return;
+                case WorkItem::State::Unstarted: {
+                    // Waiting for an item that hasn't begun to be executed yet.
+                    // Execute it synchronously.
+                    log("Wait called for unstarted task %p", reinterpret_cast<const void*>(&workItem));
+                    bool doExecute = false;
+                    {
+                        std::lock_guard lock(unstartedMutex);
+                        if (workItem.trySetExecuting()) {
+                            unstarted.erase(workItem.thisIterator);
+                            doExecute = true;
+                        }
                     }
+                    if (doExecute) {
+                        workItem.execute();
+                        return;
+                    }
+                    continue; // retry wait on this item.
                 }
-                if (doExecute) {
-                    workItem.execute();
+                case WorkItem::State::Executing: {
+                    // Waiting for an item that's currently being executed.
+                    if (&workItem.owningPool == this && threadOwningPool == this) {
+                        // We are about to block a pool thread, so consider creating an extra thread.
+                        if (readyThreads.load(std::memory_order::acquire) < targetParallelism + maxWaiterThreads) {
+                            // We have quota to create an extra thread to make up for waiting.
+                            log("Wait called: creating extra thread");
+                            std::lock_guard lock(threadsMutex);
+                            unsafeAddThread();
+                        }
+                        log("Wait called: not creating extra thread because no quota");
+                    } else {
+                        log("Wait called: not creating extra thread because waiter is a non-pool thread");
+                    }
+                    // Block this thread.
+                    workItem.future.wait();
                     return;
                 }
-                return wait(workItem);
-            }
-            case WorkItem::State::Executing: {
-                // Waiting for an item that's currently being executed.
-                if (&workItem.owningPool == this && threadOwningPool == this) {
-                    // We are about to block a pool thread, so consider creating an extra thread.
-                    if (readyThreads.load(std::memory_order::acquire) < targetParallelism + maxWaiterThreads) {
-                        // We have quota to create an extra thread to make up for waiting.
-                        log("Wait called: creating extra thread");
-                        std::lock_guard lock(threadsMutex);
-                        unsafeAddThread();
-                    }
-                    log("Wait called: not creating extra thread because no quota");
-                } else {
-                    log("Wait called: not creating extra thread because waiter is a non-pool thread");
-                }
-                // Block this thread.
-                workItem.future.wait();
-                break;
             }
         }
     }
@@ -291,16 +293,20 @@ public:
             if (stopping.load(std::memory_order::acquire) && unstarted.empty())
                 return;
 
-            for (auto item = unstarted.begin(); item != unstarted.end(); ++item) {
-                if (!item->get()->trySetExecuting())
-                    continue;
-                auto itemValue = *item;
-                unstarted.erase(item);
-                itemValue->enableDeletion(unstarted.end());
-                unstartedLock.unlock();
-                itemValue->execute();
-                break;
-            }
+            // Take the first item that we can successfully mark as executing.
+            auto item = std::find_if(unstarted.begin(), unstarted.end(),
+                                     [](const std::shared_ptr<WorkItem>& wi) {
+                                         return wi->trySetExecuting();
+                                     });
+            if (item == unstarted.end())
+                continue; // Failed to mark any item as executing.
+            // Copy the value because we're about to use it
+            // after invalidating the iterator,
+            // plus to increment the reference count.
+            auto itemValue = *item;
+            unstarted.erase(item);
+            unstartedLock.unlock();
+            itemValue->execute();
         }
     }
 };
