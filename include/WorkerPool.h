@@ -183,6 +183,7 @@ public:
         }
 
         TResult getResult() {
+            wait();
             return any_cast<TResult>(wi->future.get());
         }
     };

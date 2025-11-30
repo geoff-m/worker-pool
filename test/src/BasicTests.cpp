@@ -114,3 +114,15 @@ TEST(StressTests, Parallelism) {
     const auto waitDurationMs = std::chrono::duration_cast<std::chrono::milliseconds>(waitEndTime - waitStartTime).count();
     EXPECT_NEAR(WAIT_SECONDS * 1000, waitDurationMs, 250);
 }
+
+TEST(BasicTests, NoExtra) {
+    WorkerPool pool(2, 0);
+    const auto startTime = std::chrono::steady_clock::now();
+    pool.add([&] {
+        auto sub1 = pool.add([] { sleep(1); });
+        sub1.wait();
+    }).wait();
+    const auto endTime = std::chrono::steady_clock::now();
+    const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    EXPECT_LT(durationMs, 1500);
+}

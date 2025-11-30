@@ -24,10 +24,10 @@ TEST(StressTests, ManyWaits) {
     WorkerPool pool(4);
     const auto startTime = std::chrono::steady_clock::now();
     pool.add([&] {
-        auto sub1 = pool.add([&] { sleep(1); });
-        auto sub2 = pool.add([&] { sleep(1); });
-        auto sub3 = pool.add([&] { sleep(1); });
-        auto sub4 = pool.add([&] { sleep(1); });
+        auto sub1 = pool.add([] { sleep(1); });
+        auto sub2 = pool.add([] { sleep(1); });
+        auto sub3 = pool.add([] { sleep(1); });
+        auto sub4 = pool.add([] { sleep(1); });
         sub1.wait();
         sub2.wait();
         sub3.wait();
