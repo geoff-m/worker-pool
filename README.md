@@ -36,7 +36,24 @@ const auto sum = sumTask.getResult();
 printf("%d + %d = %d\n", X, Y, sum); // Prints 2 + 5 = 7
 ```
 
-### Waiting for pool tasks
+### Waiting for multiple tasks
+```c++
+WorkerPool pool(1);
+std::vector<WorkerPool::Task<void>> tasks;
+task.emplace_back(pool.add([]{ puts("I'm a task"); }));
+task.emplace_back(pool.add([]{ puts("I'm another task"); }));
+
+// Wait for all tasks to be finished.
+pool.waitAll(tasks);
+
+// Equivalently,
+pool.waitAll(tasks.data(), tasks.size());
+```
+Compared with sequentially calling `Task::wait` on each of a set of tasks,
+`WorkerPool::waitAll` is more convenient,
+and in some scenarios, also more performant.
+
+### How waiting works
 
 When you call `wait` on a task, you block the current thread until that task is done.
 If `wait` were to be called from a pool thread, the pool's effective parallelism would drop.
