@@ -33,7 +33,7 @@ Task sumTask = pool.add([](int x, int y) { return x + y; }, X, Y);
 
 sumTask.wait(); // Calling wait is not needed here, since getResult will wait.
 const auto sum = sumTask.getResult();
-printf("%d + %d = %d\n", X, Y, sum);
+printf("%d + %d = %d\n", X, Y, sum); // Prints 2 + 5 = 7
 ```
 
 ### Waiting for pool tasks
@@ -89,7 +89,7 @@ even though at first glance we have
  - 3 nontrivial tasks, and
  - a pool that can only do 2 things at once
 
-Execution of the above code is deterministic, but it could proceed like this:
+Execution of the above code is nondeterministic, but it could proceed like this:
 1. The main thread creates a pool with 2 worker threads and up to 2 extra threads.
 2. The main thread adds a task `outer` to the pool and waits for its completion.
 3. Worker 1 begins Task `outer`.
