@@ -183,8 +183,6 @@ public:
                     }
                     case WorkItem::State::Executing: {
                         if (firstExecutingIndex > i) {
-                            if (firstExecutingIndex != count)
-                                __builtin_unreachable();
                             firstExecutingIndex = i;
                         }
                         break;
