@@ -2,7 +2,6 @@
 #include <any>
 #include <functional>
 #include <future>
-#include <queue>
 #include <mutex>
 #include <condition_variable>
 #include <thread>
@@ -28,9 +27,9 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                  };
 
 class WorkerPool;
-static thread_local WorkerPool *threadOwningPool;
+static thread_local WorkerPool* threadOwningPool;
 
-static void log([[maybe_unused]] const char *format...) {
+static void log([[maybe_unused]] const char* format...) {
 #ifdef WORKER_POOL_LOGGING
     va_list args;
     va_start(args, format);
@@ -223,7 +222,6 @@ public:
 private:
     size_t lastItemId = 0;
 
-public:
     void wait(WorkItem& workItem) {
         // retry loop
         while (true) {
@@ -272,6 +270,67 @@ public:
                 }
             }
         }
+    }
+
+public:
+    template<typename TResult>
+    void waitAll(Task<TResult>* tasks, size_t count) {
+        // The index of the first item that is currently being executed.
+        // Equal to count if none found yet.
+        size_t firstExecutingIndex = count;
+
+        // For each given item to await,
+        // do it synchronously if it's unstarted.
+        for (size_t i = 0; i < count; ++i) {
+            auto& item = tasks[i].wi;
+            bool needRetry = false;
+            do {
+                const auto state = item->state.load(std::memory_order::acquire);
+                switch (state) {
+                    default:
+                    case WorkItem::State::Done:
+                        break;
+                    case WorkItem::State::Unstarted: {
+                        if (item->trySetExecuting()) {
+                            // This item was unstarted and now we can execute it synchronously.
+                            auto itemValue = item;
+                            {
+                                std::lock_guard lock(unstartedMutex);
+                                unstarted.erase(item->thisIterator);
+                            }
+                            itemValue->execute();
+                        } else {
+                            // Failed to start executing it.
+                            // Recheck this item.
+                            // Its new state may be Executing or Done.
+                            needRetry = true;
+                        }
+                        break;
+                    }
+                    case WorkItem::State::Executing: {
+                        if (firstExecutingIndex > i) {
+                            if (firstExecutingIndex != count)
+                                __builtin_unreachable();
+                            firstExecutingIndex = i;
+                        }
+                        break;
+                    }
+                }
+            } while (needRetry);
+        }
+        if (firstExecutingIndex == count) {
+            // All done.
+            return;
+        }
+        for (size_t i = firstExecutingIndex; i < count; ++i) {
+            // Everything at this point should be either Executing or Done.
+            tasks[i].wait();
+        }
+    }
+
+    template<typename TResult>
+    void waitAll(std::vector<Task<TResult>>& tasks) {
+        waitAll(tasks.data(), tasks.size());
     }
 
     [[nodiscard]] bool threadIsExtra() const {

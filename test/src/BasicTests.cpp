@@ -119,10 +119,30 @@ TEST(BasicTests, NoExtra) {
     WorkerPool pool(2, 0);
     const auto startTime = std::chrono::steady_clock::now();
     pool.add([&] {
-        auto sub1 = pool.add([] { sleep(1); });
-        sub1.wait();
+        auto sub = pool.add([] { sleep(1); });
+        sub.wait();
     }).wait();
     const auto endTime = std::chrono::steady_clock::now();
     const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
     EXPECT_LT(durationMs, 1500);
+}
+
+TEST(BasicTests, WaitAllIsSmart) {
+    WorkerPool pool(1, 0);
+    const auto startTime = std::chrono::steady_clock::now();
+    pool.add([&] {
+        std::vector<WorkerPool::Task<void>> subtasks;
+        auto sub1 = subtasks.emplace_back(pool.add([] { sleep(2); }));
+
+        // Give time for pool to start sub1.
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        auto sub2 = subtasks.emplace_back(pool.add([] { sleep(1); }));
+
+        // This should do sub2 first instead of naively blocking on sub1.
+        pool.waitAll(subtasks);
+    }).wait();
+    const auto endTime = std::chrono::steady_clock::now();
+    const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    EXPECT_LT(durationMs, 2500);
 }
