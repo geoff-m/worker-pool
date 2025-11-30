@@ -6,8 +6,10 @@ include(cmake/msan.cmake)
 include(cmake/tsan.cmake)
 include(cmake/ubsan.cmake)
 
-add_library(worker-pool INTERFACE)
-target_include_directories(worker-pool INTERFACE include)
+add_library(worker-pool
+        include/WorkerPool.h
+        src/WorkerPool.cpp)
+target_include_directories(worker-pool PUBLIC include)
 
 option(WORKER_POOL_LOGGING "Enable logging to stdout for worker pools" OFF)
 if (${WORKER_POOL_LOGGING})
