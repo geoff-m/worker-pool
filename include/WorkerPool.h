@@ -8,7 +8,6 @@
 #include <concepts>
 #include <memory>
 #include <atomic>
-#include <stdexcept>
 #include <list>
 
 #ifdef WORKER_POOL_LOGGING
@@ -25,6 +24,8 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                                      std::forward<TArgs>(args)...)
                                      } -> std::same_as<void>;
                                  };
+class WorkerPool;
+inline thread_local WorkerPool* threadOwningPool;
 
 class WorkerPool {
     std::mutex threadsMutex;
@@ -32,6 +33,7 @@ class WorkerPool {
     std::list<std::thread> threads;
     const size_t targetParallelism;
     const size_t maxWaiterThreads;
+    const bool allowWorkOffPoolThreads;
 
 public:
     /**
@@ -39,7 +41,7 @@ public:
      * @param targetParallelism The target number of threads to use for simultaneous work.
      * @param maxWaiterThreads The maximum number of extra threads to create when wait is called by a pool thread.
      */
-    WorkerPool(int targetParallelism, int maxWaiterThreads);
+    WorkerPool(int targetParallelism, int maxWaiterThreads, bool allowWorkOffPoolThreads = true);
 
     explicit WorkerPool(int targetParallelism);
 
@@ -56,7 +58,8 @@ private:
 
     void throwIfStopped() const;
 
-    void unsafeAddThread() ;
+    void unsafeAddThread();
+
     class WorkItem {
         friend class WorkerPool;
 
@@ -95,7 +98,8 @@ public:
         std::shared_ptr<WorkItem> wi;
 
         explicit Task(const std::shared_ptr<WorkItem>& wrapped)
-            : wi(wrapped) {}
+            : wi(wrapped) {
+        }
 
     public:
         void wait() {
@@ -106,7 +110,6 @@ public:
             wait();
             return any_cast<TResult>(wi->future.get());
         }
-
     };
 
     // Overload for non-void callback
@@ -146,9 +149,21 @@ private:
 
     void wait(WorkItem& workItem);
 
+    template<typename TResult>
+    static void naiveWaitAll(Task<TResult>* tasks, size_t count) {
+        for (size_t i = 0; i < count; ++i) {
+            tasks[i].wait();
+        }
+    }
+
 public:
     template<typename TResult>
     void waitAll(Task<TResult>* tasks, size_t count) {
+        if (!allowWorkOffPoolThreads && threadOwningPool != this) {
+            naiveWaitAll(tasks, count);
+            return;
+        }
+
         // The index of the first item that is currently being executed.
         // Equal to count if none found yet.
         size_t firstExecutingIndex = count;
@@ -194,10 +209,8 @@ public:
             // All done.
             return;
         }
-        for (size_t i = firstExecutingIndex; i < count; ++i) {
-            // Everything at this point should be either Executing or Done.
-            tasks[i].wait();
-        }
+        // Everything at this point should be either Executing or Done.
+        naiveWaitAll(tasks + firstExecutingIndex, count);
     }
 
     template<typename TResult>

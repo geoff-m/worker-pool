@@ -5,8 +5,6 @@
 #include <cstdio>
 #endif
 
-static thread_local WorkerPool* threadOwningPool;
-
 static void log([[maybe_unused]] const char* format...) {
 #ifdef WORKER_POOL_LOGGING
     va_list args;
@@ -24,9 +22,10 @@ static void log([[maybe_unused]] const char* format...) {
 #endif
 }
 
-WorkerPool::WorkerPool(int targetParallelism, int maxWaiterThreads)
+WorkerPool::WorkerPool(int targetParallelism, int maxWaiterThreads, bool allowWorkOffPoolThreads)
     : targetParallelism(targetParallelism),
-      maxWaiterThreads(maxWaiterThreads) {
+      maxWaiterThreads(maxWaiterThreads),
+      allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
     if (targetParallelism <= 0)
         throw std::invalid_argument("Target parallelism must be at least 1");
     if (maxWaiterThreads < 0)
@@ -38,7 +37,8 @@ WorkerPool::WorkerPool(int targetParallelism, int maxWaiterThreads)
 
 WorkerPool::WorkerPool(int targetParallelism)
     : targetParallelism(targetParallelism),
-      maxWaiterThreads(targetParallelism) {
+      maxWaiterThreads(targetParallelism),
+      allowWorkOffPoolThreads(true) {
     if (targetParallelism <= 0)
         throw std::invalid_argument("Target parallelism must be at least 1");
     std::lock_guard lock(threadsMutex);
@@ -119,6 +119,10 @@ void WorkerPool::wait(WorkItem& workItem) {
                 return;
             case WorkItem::State::Unstarted: {
                 // Waiting for an item that hasn't begun to be executed yet.
+                if (!allowWorkOffPoolThreads && threadOwningPool != this) {
+                    workItem.future.wait();
+                    return;
+                }
                 // Execute it synchronously.
                 log("Wait called for unstarted task %p", reinterpret_cast<const void*>(&workItem));
                 bool doExecute = false;

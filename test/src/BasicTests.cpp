@@ -1,4 +1,4 @@
-#include "gtest/gtest.h"
+#include "TestUtils.h"
 #include "WorkerPool.h"
 #include <chrono>
 #include <iostream>
@@ -103,23 +103,23 @@ TEST(StressTests, Parallelism) {
     std::cout << "Using threadCount=" << threadCount << std::endl;
     WorkerPool pool(threadCount);
     std::vector<WorkerPool::Task<void>> futures;
-    constexpr auto WAIT_SECONDS = 1;
+    constexpr auto WAIT_MS = 1000;
     for (size_t i = 1; i <= threadCount; ++i) {
-        futures.emplace_back(pool.add([=] { std::this_thread::sleep_for(std::chrono::seconds(WAIT_SECONDS)); }));
+        futures.emplace_back(pool.add([=] { sleepMs(WAIT_MS); }));
     }
     const auto waitStartTime = std::chrono::steady_clock::now();
     for (size_t i = 0; i < threadCount; ++i)
          futures[i].wait();
     const auto waitEndTime = std::chrono::steady_clock::now();
     const auto waitDurationMs = std::chrono::duration_cast<std::chrono::milliseconds>(waitEndTime - waitStartTime).count();
-    EXPECT_NEAR(WAIT_SECONDS * 1000, waitDurationMs, 250);
+    EXPECT_NEAR(WAIT_MS, waitDurationMs, 250);
 }
 
 TEST(BasicTests, NoExtra) {
     WorkerPool pool(2, 0);
     const auto startTime = std::chrono::steady_clock::now();
     pool.add([&] {
-        auto sub = pool.add([] { sleep(1); });
+        auto sub = pool.add([] { sleepMs(1000); });
         sub.wait();
     }).wait();
     const auto endTime = std::chrono::steady_clock::now();
@@ -132,12 +132,12 @@ TEST(BasicTests, WaitAllIsSmart) {
     const auto startTime = std::chrono::steady_clock::now();
     pool.add([&] {
         std::vector<WorkerPool::Task<void>> subtasks;
-        auto sub1 = subtasks.emplace_back(pool.add([] { sleep(2); }));
+        auto sub1 = subtasks.emplace_back(pool.add([] { sleepMs(2000); }));
 
         // Give time for pool to start sub1.
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        sleepMs(100);
 
-        auto sub2 = subtasks.emplace_back(pool.add([] { sleep(1); }));
+        auto sub2 = subtasks.emplace_back(pool.add([] { sleepMs(1000); }));
 
         // This should do sub2 first instead of naively blocking on sub1.
         pool.waitAll(subtasks);
