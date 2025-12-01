@@ -2,6 +2,14 @@
 
 `worker-pool` is a thread pool. It aims to be easy to use.
 
+## Features
+ - Configurable degree of parallelism 
+ - Tasks can be void or have copy-constructible output
+ - Tasks can create and await other tasks
+ - You can provide your own thread factory
+ - Can await a collection of tasks
+ - Not global, allows multiple pools in one process
+
 ## Usage
 
 ### Simple example
