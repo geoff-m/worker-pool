@@ -61,7 +61,30 @@ Compared with sequentially calling `Task::wait` on each of a set of tasks,
 `WorkerPool::waitAll` is more convenient,
 and in some scenarios, also more performant.
 
-### How waiting works
+### Custom thread factory
+```c++
+#include <pthread.h>
+#include <cstdio>
+...
+WorkerPool pool(4, 4,
+                 [&](const std::function<void()>& callback) {
+                     return std::thread([=] {
+                        const auto status = pthread_setschedprio(pthread_self(), 20);
+                        if (status != 0) {
+                            errno = status;
+                            perror("pthread_setschedprio");
+                        }
+                        callback();
+                     });
+                 });
+```
+All threads created by the above pool will have their priority set to 20.
+
+### More examples
+
+The unit tests in `test/src/` are good sources of further examples.
+
+## Discussion: How waiting works
 
 When you call `wait` on a task, you block the current thread until that task is done.
 If `wait` were to be called from a pool thread, the pool's effective parallelism would drop.
@@ -70,6 +93,8 @@ WorkerPool uses two strategies to mitigate this.
 First, when `wait` is called on a task that has not yet started,
 WorkerPool will use the calling thread to execute the task.
 This makes the "waiting" thread do something useful instead of just blocking.
+You can opt out of this behavior by passing `false` for `allowWorkOffPoolThreads`
+in the WorkerPool constructor.
 
 Second, when `wait` is called on a task that is already in progress,
 the calling thread has no choice but to simply wait for it to finish.
@@ -159,8 +184,3 @@ Task `inner` has not been started,
 so the waiting thread (Worker 1) executes `inner` synchronously.
 6. Worker 1 finishes executing `inner`.
 7. Worker 1 returns from `inner.wait()` and Task `outer` is done.
-
-### More examples
-
-The unit tests in `test/src/` are good sources of further examples.
-
