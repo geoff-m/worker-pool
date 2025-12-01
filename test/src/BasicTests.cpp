@@ -39,7 +39,7 @@ TEST(BasicTests, BinaryFunction) {
     WorkerPool pool(2);
     constexpr auto X = 2;
     constexpr auto Y = 3;
-    auto binaryFuture = pool.add(&add, X, Y);
+    auto binaryFuture = pool.add(add, X, Y);
     binaryFuture.wait();
     EXPECT_EQ(X + Y, binaryFuture.getResult());
 }

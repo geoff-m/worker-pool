@@ -33,15 +33,28 @@ WorkerPool pool(1);
 
 constexpr auto X = 2;
 constexpr auto Y = 5;
-// We could pass arguments into the callback by capture:
 Task sumTask = pool.add([X, Y]{ return X + Y; });
-
-// ... or by passing extra arguments to WorkerPool::add.
-Task sumTask = pool.add([](int x, int y) { return x + y; }, X, Y);
 
 sumTask.wait(); // Calling wait is not needed here, since getResult will wait.
 const auto sum = sumTask.getResult();
 printf("%d + %d = %d\n", X, Y, sum); // Prints 2 + 5 = 7
+```
+
+### Different ways to add a task
+```c++
+
+constexpr auto X = 2;
+constexpr auto Y = 5;
+
+// Using labmda with capture
+Task sumTask = pool.add([X, Y]{ return X + Y; });
+
+// Using extra arguments
+Task sumTask = pool.add([](int x, int y) { return x + y; }, X, Y);
+
+// Using named callback
+static void add(int x, int y) { return x + y; }
+Task sumTask = pool.add(add, X, Y);
 ```
 
 ### Waiting for multiple tasks
