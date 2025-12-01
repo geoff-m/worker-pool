@@ -128,11 +128,11 @@ TEST(BasicTests, NoExtra) {
 }
 
 TEST(BasicTests, WaitAllIsSmart) {
-    WorkerPool pool(1, 0);
+    WorkerPool pool(2, 0, false);
     const auto startTime = std::chrono::steady_clock::now();
     pool.add([&] {
         std::vector<WorkerPool::Task<void>> subtasks;
-        auto sub1 = subtasks.emplace_back(pool.add([] { sleepMs(2000); }));
+        auto sub1 = subtasks.emplace_back(pool.add([] { sleepMs(1000); }));
 
         // Give time for pool to start sub1.
         sleepMs(100);
@@ -144,5 +144,5 @@ TEST(BasicTests, WaitAllIsSmart) {
     }).wait();
     const auto endTime = std::chrono::steady_clock::now();
     const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-    EXPECT_LT(durationMs, 2500);
+    EXPECT_LT(durationMs, 1500);
 }

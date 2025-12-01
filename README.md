@@ -19,8 +19,8 @@ WorkerPool pool(2);
 
 // Add some tasks to the pool.
 // The pool will begin executing them as soon as possible.
-Task t1 = pool.add([] { puts("I'm a task"); });
-Task t2 = pool.add([] { puts("I'm another task"); });
+Task t1 = pool.add([]{ puts("I'm a task"); });
+Task t2 = pool.add([]{ puts("I'm another task"); });
 
 // Ensure that the tasks are finished before proceeding.
 t1.wait();
@@ -106,8 +106,6 @@ WorkerPool uses two strategies to mitigate this.
 First, when `wait` is called on a task that has not yet started,
 WorkerPool will use the calling thread to execute the task.
 This makes the "waiting" thread do something useful instead of just blocking.
-You can opt out of this behavior by passing `false` for `allowWorkOffPoolThreads`
-in the WorkerPool constructor.
 
 Second, when `wait` is called on a task that is already in progress,
 the calling thread has no choice but to simply wait for it to finish.
