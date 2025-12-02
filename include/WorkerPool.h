@@ -41,22 +41,22 @@ public:
     /**
  *
  * @param targetParallelism The target number of threads to use for simultaneous work.
- * @param maxWaiterThreads The maximum number of extra threads to create when wait is called by a pool thread.
+ * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
  * @param threadFactory A callable like std::thread(callback)
  * @param allowWorkOffPoolThreads Whether this pool is allowed to execute callbacks in non-pool waiter threads.
  */
     template<typename ThreadFactory>
-    WorkerPool(int targetParallelism, int maxWaiterThreads, ThreadFactory threadFactory,
+    WorkerPool(int targetParallelism, int extraThreads, ThreadFactory threadFactory,
                bool allowWorkOffPoolThreads = true)
         : targetParallelism(targetParallelism),
-          maxWaiterThreads(maxWaiterThreads),
+          maxWaiterThreads(extraThreads),
           threadFactory([threadFactory](const std::function<void()>& callback) {
               return threadFactory(std::move(callback));
           }),
           allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
         if (targetParallelism <= 0)
             throw std::invalid_argument("Target parallelism must be at least 1");
-        if (maxWaiterThreads < 0)
+        if (extraThreads < 0)
             throw std::invalid_argument("Maximum waiter threads must be nonnegative");
         std::lock_guard lock(threadsMutex);
         for (int i = 0; i < targetParallelism; i++)
