@@ -119,16 +119,10 @@ If you do not specify a value,
 the default is to use up to the same number of extra threads
 as the regular target parallelism.
 Consider raising the number of extra threads if you notice
-the pool isn't hitting its target degree of parallelism.
-This is more likely to happen when
- - the pool simultaneously has a large number of tasks
-   (more tasks than threads); and
- - a large number of the tasks wait for other pool tasks
-
+the pool spending a lot of time waiting for pool tasks.
 The downside of using a huge value for the extra threads limit
 is that although extra threads are created lazily,
 you could run out of memory if a huge number of them is actually created.
-
 The pool's parallelism is always limited to its target value.
 Therefore, when waiting threads become ready again and extra threads are no longer needed,
 the extra threads will not be used unless needed again to offset waiters.
