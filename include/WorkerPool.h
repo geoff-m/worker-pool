@@ -25,123 +25,321 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                                      std::forward<TArgs>(args)...)
                                      } -> std::same_as<void>;
                                  };
-class WorkerPool;
-inline thread_local WorkerPool* threadOwningPool;
 
-class WorkerPool {
-    std::mutex threadsMutex;
-    std::atomic<size_t> readyThreads; // The number of threads that are doing work or are ready to do so.
-    std::list<std::thread> threads;
-    const size_t targetParallelism;
-    const size_t maxWaiterThreads;
-    const std::function<std::thread(std::function<void()>)> threadFactory;
-    const bool allowWorkOffPoolThreads;
+namespace WorkerPool {
+    class Pool;
+    inline thread_local Pool* threadOwningPool;
 
-public:
+    template<typename TResult>
+    class Task;
+
     /**
- *
- * @param targetParallelism The target number of threads to use for simultaneous work.
- * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
- * @param threadFactory A callable like std::thread(callback)
- * @param allowWorkOffPoolThreads Whether this pool is allowed to execute callbacks in non-pool waiter threads.
- */
-    template<typename ThreadFactory>
-    WorkerPool(int targetParallelism, int extraThreads, ThreadFactory threadFactory,
-               bool allowWorkOffPoolThreads = true)
-        : targetParallelism(targetParallelism),
-          maxWaiterThreads(extraThreads),
-          threadFactory([threadFactory](const std::function<void()>& callback) {
-              return threadFactory(std::move(callback));
-          }),
-          allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
-        if (targetParallelism <= 0)
-            throw std::invalid_argument("Target parallelism must be at least 1");
-        if (extraThreads < 0)
-            throw std::invalid_argument("Maximum waiter threads must be nonnegative");
-        std::lock_guard lock(threadsMutex);
-        for (int i = 0; i < targetParallelism; i++)
-            unsafeAddThread();
-    }
-
-    WorkerPool(int targetParallelism, int maxWaiterThreads, bool allowWorkOffPoolThreads = true) : WorkerPool(
-        targetParallelism, maxWaiterThreads,
-        [](const std::function<void()>& callback) { return std::thread(callback); },
-        allowWorkOffPoolThreads) {
-    }
-
-    explicit WorkerPool(int targetParallelism) : WorkerPool(targetParallelism, targetParallelism) {
-    }
-
-    ~WorkerPool();
-
-    void shutDown();
-
-private:
-    std::condition_variable cv;
-    std::mutex unstartedMutex;
-    class WorkItem;
-    std::list<std::shared_ptr<WorkItem>> unstarted;
-    std::atomic<bool> stopping = false;
-
-    void throwIfStopped() const;
-
-    void unsafeAddThread();
-
-    class WorkItem {
-        friend class WorkerPool;
-
-        enum class State {
-            Unstarted,
-            Executing,
-            Done
-        };
-
-        size_t id;
-        std::atomic<State> state;
-        WorkerPool& owningPool;
-        std::packaged_task<std::any()> task;
-        std::future<std::any> future;
-        decltype(unstarted)::iterator thisIterator;
+     * A thread pool to which tasks can be added as callbacks.
+     * The pool eventually executes all tasks ever added to it.
+     * The pool tends to begin executing tasks in FIFO order, but this is not guaranteed.
+     */
+    class Pool {
+        template<typename T>
+        friend class Task;
+        std::mutex threadsMutex;
+        std::atomic<size_t> readyThreads; // The number of threads that are doing work or are ready to do so.
+        std::list<std::thread> threads;
+        const size_t targetParallelism;
+        const size_t maxWaiterThreads;
+        const std::function<std::thread(std::function<void()>)> threadFactory;
+        const bool allowWorkOffPoolThreads;
 
     public:
-        explicit WorkItem(WorkerPool& owner,
-                          size_t id, std::packaged_task<std::any()> task);
+        /**
+         * Creates a new WorkerPool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
+         * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
+         * @param threadFactory A callable like std::thread::thread(callback) which the WorkerPool will use
+         * to create threads when needed.
+         * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
+         */
+        template<typename ThreadFactory>
+        Pool(int targetParallelism, int extraThreads, ThreadFactory threadFactory,
+             bool allowWorkOffPoolThreads = true)
+            : targetParallelism(targetParallelism),
+              maxWaiterThreads(extraThreads),
+              threadFactory([threadFactory](const std::function<void()>& callback) {
+                  return threadFactory(std::move(callback));
+              }),
+              allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
+            if (targetParallelism <= 0)
+                throw std::invalid_argument("Target parallelism must be at least 1");
+            if (extraThreads < 0)
+                throw std::invalid_argument("Maximum waiter threads must be nonnegative");
+            std::lock_guard lock(threadsMutex);
+            for (int i = 0; i < targetParallelism; i++)
+                unsafeAddThread();
+        }
 
-        void enableDeletion(decltype(unstarted)::iterator self);
+        /**
+         * Creates a new WorkerPool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
+         * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
+         * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
+         */
+        Pool(int targetParallelism, int extraThreads, bool allowWorkOffPoolThreads = true) : Pool(
+            targetParallelism, extraThreads,
+            [](const std::function<void()>& callback) { return std::thread(callback); },
+            allowWorkOffPoolThreads) {
+        }
 
-        bool operator==(const WorkItem& other) const;
+        /**
+         * Creates a new WorkerPool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
+        */
+        explicit Pool(int targetParallelism) : Pool(targetParallelism, targetParallelism) {
+        }
 
-        [[nodiscard]] bool trySetExecuting();
+        /**
+         * Destroys the WorkerPool.
+         * Shuts down the WorkerPool (see WorkerPool::shutDown()),
+         * then waits for all work previously added to the pool to finish.
+         */
+        ~Pool();
 
-        void execute();
+        /**
+         * Shuts down the WorkerPool.
+         * Tasks already running or queued in the pool will still run normally.
+         * Attempting to add tasks to a shut down WorkerPool will throw an exception.
+         * A shut down pool cannot be restarted.
+         */
+        void shutDown();
 
-        std::any getResult();
+    private:
+        std::condition_variable cv;
+        std::mutex unstartedMutex;
+        class WorkItem;
+        std::list<std::shared_ptr<WorkItem>> unstarted;
+        std::atomic<bool> stopping = false;
+
+        void throwIfStopped() const;
+
+        void unsafeAddThread();
+
+        class WorkItem {
+            friend class Pool;
+
+            enum class State {
+                Unstarted,
+                Executing,
+                Done
+            };
+
+            size_t id;
+            std::atomic<State> state;
+            Pool& owningPool;
+            std::packaged_task<std::any()> task;
+            std::future<std::any> future;
+            decltype(unstarted)::iterator thisIterator;
+
+        public:
+            explicit WorkItem(Pool& owner,
+                              size_t id, std::packaged_task<std::any()> task);
+
+            void enableDeletion(decltype(unstarted)::iterator self);
+
+            [[nodiscard]] bool operator==(const WorkItem& other) const;
+
+            [[nodiscard]] bool trySetExecuting();
+
+            void execute();
+
+            [[nodiscard]] Pool& getOwningPool() const;
+
+            [[nodiscard]] std::any getResult();
+        };
+
+    public:
+        /**
+         * Adds a callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return A Task representing the work associated with this call.
+         */
+        template<typename TCallback, typename... TArgs>
+        auto add(TCallback callback, TArgs... args) -> Task<decltype(std::invoke(callback, args...))>;
+
+        /**
+         * Adds a callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return A Task representing the work associated with this call.
+         */
+        template<typename TCallback, typename... TArgs>
+            requires invocable_returns_void<TCallback, TArgs...>
+        auto add(TCallback callback, TArgs... args) -> Task<void>;
+
+    private:
+        size_t lastItemId = 0;
+
+        [[nodiscard]] bool threadIsExtra() const;
+
+        [[nodiscard]] bool threadShouldExit() const;
+
+        void work();
+
+        void wait(WorkItem& workItem);
+
+        template<typename TResult>
+        static void naiveWaitAll(Task<TResult>* tasks, size_t count) {
+            for (size_t i = 0; i < count; ++i) {
+                tasks[i].wait();
+            }
+        }
+
+    public:
+        /**
+         * Blocks until all of the given tasks are finished.
+         * @tparam TResult Type of the result of each task.
+         * @param tasks Array of tasks.
+         * @param count Number of tasks.
+         */
+        template<typename TResult>
+        void waitAll(Task<TResult>* tasks, size_t count) {
+            if (!allowWorkOffPoolThreads && threadOwningPool != this) {
+                naiveWaitAll(tasks, count);
+                return;
+            }
+
+            // The index of the first item that is currently being executed.
+            // Equal to count if none found yet.
+            size_t firstExecutingIndex = count;
+
+            // For each given item to await,
+            // do it synchronously if it's unstarted.
+            for (size_t i = 0; i < count; ++i) {
+                auto& item = tasks[i].wi;
+                bool needRetry = false;
+                do {
+                    const auto state = item->state.load(std::memory_order::acquire);
+                    switch (state) {
+                        default:
+                        case WorkItem::State::Done:
+                            break;
+                        case WorkItem::State::Unstarted: {
+                            if (item->trySetExecuting()) {
+                                // This item was unstarted and now we can execute it synchronously.
+                                auto itemValue = item;
+                                {
+                                    std::lock_guard lock(unstartedMutex);
+                                    unstarted.erase(item->thisIterator);
+                                }
+                                itemValue->execute();
+                            } else {
+                                // Failed to start executing it.
+                                // Recheck this item.
+                                // Its new state may be Executing or Done.
+                                needRetry = true;
+                            }
+                            break;
+                        }
+                        case WorkItem::State::Executing: {
+                            if (firstExecutingIndex > i) {
+                                firstExecutingIndex = i;
+                            }
+                            break;
+                        }
+                    }
+                } while (needRetry);
+            }
+            if (firstExecutingIndex == count) {
+                // All done.
+                return;
+            }
+            // Everything at this point should be either Executing or Done.
+            naiveWaitAll(tasks + firstExecutingIndex, count);
+        }
+
+        /**
+        * Blocks until all of the given tasks are finished.
+         * @tparam TResult Type of the result of each task.
+         * @param tasks Vector of tasks.
+         */
+        template<typename TResult>
+        void waitAll(std::vector<Task<TResult>>& tasks) {
+            waitAll(tasks.data(), tasks.size());
+        }
     };
 
-public:
+
+    /**
+      * Represents a task that has been submitted to the pool.
+      * @tparam TResult The type of the result of this Task.
+      */
     template<typename TResult>
     class Task {
-        friend class WorkerPool;
-        std::shared_ptr<WorkItem> wi;
+        friend class Pool;
+        std::shared_ptr<Pool::WorkItem> wi;
+        bool haveResult = false;
+        TResult result;
 
-        explicit Task(const std::shared_ptr<WorkItem>& wrapped)
+        explicit Task(const std::shared_ptr<Pool::WorkItem>& wrapped)
             : wi(wrapped) {
         }
 
     public:
-        void wait() {
-            wi->owningPool.wait(*wi);
+        /**
+         * Blocks until this Task is complete.
+         * @return The result returned from this task.
+         */
+        TResult wait() {
+            if (haveResult)
+                return result;
+            wi->getOwningPool().wait(*wi);
+            result = any_cast<TResult>(wi->getResult());
+            haveResult = true;
+            wi.reset();
+            return result;
         }
 
-        TResult getResult() {
+        /**
+         * Gets the result returned from this task, waiting if necessary.
+         * @return The result returned from this task.
+         */
+        [[nodiscard]] TResult getResult() {
             wait();
-            return any_cast<TResult>(wi->future.get());
+            return result;
+        }
+    };
+
+    /**
+    * Represents a task that has been submitted to the pool.
+    */
+    template<>
+    class Task<void> {
+        friend class Pool;
+        std::shared_ptr<Pool::WorkItem> wi;
+        bool done = false;
+
+        explicit Task(const std::shared_ptr<Pool::WorkItem>& wrapped)
+            : wi(wrapped) {
+        }
+
+    public:
+        /**
+         * Blocks until this Task is complete.
+         */
+        void wait() {
+            if (done)
+                return;
+            wi->getOwningPool().wait(*wi);
+            wi.reset();
+            done = true;
         }
     };
 
     // Overload for non-void callback
     template<typename TCallback, typename... TArgs>
-    auto add(TCallback callback, TArgs... args) -> Task<decltype(std::invoke(callback, args...))> {
+    auto Pool::add(TCallback callback, TArgs... args) -> Task<decltype(std::invoke(callback, args...))> {
         using TResult = decltype(std::invoke(callback, args...));
         std::lock_guard lock(unstartedMutex);
         throwIfStopped();
@@ -158,7 +356,7 @@ public:
     // Overload for void callback
     template<typename TCallback, typename... TArgs>
         requires invocable_returns_void<TCallback, TArgs...>
-    auto add(TCallback callback, TArgs... args) -> Task<void> {
+    auto Pool::add(TCallback callback, TArgs... args) -> Task<void> {
         std::lock_guard lock(unstartedMutex);
         throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this, lastItemId++, std::packaged_task<std::any()>([=] {
@@ -170,84 +368,4 @@ public:
         cv.notify_one();
         return Task<void>(wi);
     }
-
-private:
-    size_t lastItemId = 0;
-
-    void wait(WorkItem& workItem);
-
-    template<typename TResult>
-    static void naiveWaitAll(Task<TResult>* tasks, size_t count) {
-        for (size_t i = 0; i < count; ++i) {
-            tasks[i].wait();
-        }
-    }
-
-public:
-    template<typename TResult>
-    void waitAll(Task<TResult>* tasks, size_t count) {
-        if (!allowWorkOffPoolThreads && threadOwningPool != this) {
-            naiveWaitAll(tasks, count);
-            return;
-        }
-
-        // The index of the first item that is currently being executed.
-        // Equal to count if none found yet.
-        size_t firstExecutingIndex = count;
-
-        // For each given item to await,
-        // do it synchronously if it's unstarted.
-        for (size_t i = 0; i < count; ++i) {
-            auto& item = tasks[i].wi;
-            bool needRetry = false;
-            do {
-                const auto state = item->state.load(std::memory_order::acquire);
-                switch (state) {
-                    default:
-                    case WorkItem::State::Done:
-                        break;
-                    case WorkItem::State::Unstarted: {
-                        if (item->trySetExecuting()) {
-                            // This item was unstarted and now we can execute it synchronously.
-                            auto itemValue = item;
-                            {
-                                std::lock_guard lock(unstartedMutex);
-                                unstarted.erase(item->thisIterator);
-                            }
-                            itemValue->execute();
-                        } else {
-                            // Failed to start executing it.
-                            // Recheck this item.
-                            // Its new state may be Executing or Done.
-                            needRetry = true;
-                        }
-                        break;
-                    }
-                    case WorkItem::State::Executing: {
-                        if (firstExecutingIndex > i) {
-                            firstExecutingIndex = i;
-                        }
-                        break;
-                    }
-                }
-            } while (needRetry);
-        }
-        if (firstExecutingIndex == count) {
-            // All done.
-            return;
-        }
-        // Everything at this point should be either Executing or Done.
-        naiveWaitAll(tasks + firstExecutingIndex, count);
-    }
-
-    template<typename TResult>
-    void waitAll(std::vector<Task<TResult>>& tasks) {
-        waitAll(tasks.data(), tasks.size());
-    }
-
-    [[nodiscard]] bool threadIsExtra() const;
-
-    [[nodiscard]] bool threadShouldExit() const;
-
-    void work();
-};
+}

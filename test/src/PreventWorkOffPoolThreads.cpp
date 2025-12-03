@@ -2,8 +2,10 @@
 #include "gtest/gtest.h"
 #include "WorkerPool.h"
 
+using namespace  WorkerPool;
+
 TEST(PreventWorkOffPoolThreads, WaitAll) {
-    WorkerPool pool(5, 0, false);
+    Pool pool(5, 0, false);
     const auto mainThreadId = std::this_thread::get_id();
     std::vector<WorkerPool::Task<void>> tasks;
     for (int i = 0; i < 10; ++i) {
@@ -16,7 +18,7 @@ TEST(PreventWorkOffPoolThreads, WaitAll) {
 }
 
 TEST(PreventWorkOffPoolThreads, WaitOne) {
-    WorkerPool pool(1, 0, false);
+    Pool pool(1, 0, false);
     const auto mainThreadId = std::this_thread::get_id();
     std::vector<WorkerPool::Task<void>> tasks;
     for (int i = 0; i < 2; ++i) {

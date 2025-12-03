@@ -1,12 +1,13 @@
 #include "TestUtils.h"
 #include "WorkerPool.h"
 #include <atomic>
+using namespace  WorkerPool;
 
 TEST(ThreadFactory, Basic) {
     std::atomic<int> threadsCreated = 0;
     constexpr auto EXPECTED_THREADS_CREATED = 9;
     {
-        WorkerPool pool(EXPECTED_THREADS_CREATED, 0,
+        Pool pool(EXPECTED_THREADS_CREATED, 0,
                         [&threadsCreated](const std::function<void()>& callback) {
                             return std::thread([&threadsCreated, callback]() {
                                 ++threadsCreated;
