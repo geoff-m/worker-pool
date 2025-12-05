@@ -1,5 +1,8 @@
 #include "WorkerPool.h"
 
+
+//#define WORKER_POOL_LOGGING
+
 #ifdef WORKER_POOL_LOGGING
 #include <cstdarg>
 #include <cstdio>
@@ -13,13 +16,26 @@ static void log([[maybe_unused]] const char* format...) {
     buf[sizeof(buf) - 1] = '\0';
     const auto timeNanos = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-    const auto threadKind = threadOwningPool != nullptr ? "pool" : "non-pool";
+    const auto threadKind = WorkerPool::threadOwningPool != nullptr ? "pool" : "non-pool";
     const auto prefixLength = snprintf(buf, sizeof(buf), "%ld %s thread %lu: ",
                                        timeNanos, threadKind, pthread_self());
     vsnprintf(buf + prefixLength, sizeof(buf) - prefixLength, format, args);
     puts(buf);
     va_end(args);
 #endif
+}
+
+const char* WorkerPool::Pool::WorkItem::workItemStateToString(State state) {
+    switch (state) {
+        case State::Unstarted:
+            return "Unstarted";
+        case State::Executing:
+            return "Executing";
+        case State::Done:
+            return "Done";
+        default:
+            return "Unknown";
+    }
 }
 
 namespace WorkerPool {
@@ -50,12 +66,15 @@ namespace WorkerPool {
     }
 
     Pool::WorkItem::WorkItem(Pool& owner,
-                                   size_t id, std::packaged_task<std::any()> task)
-        : id(id), owningPool(owner), task(std::move(task)), future(this->task.get_future()) {
+                       size_t id, std::packaged_task<std::any()> task)
+        : id(id),
+          owningPool(owner),
+          task(std::move(task)),
+          future(this->task.get_future().share()) {
         state.store(State::Unstarted, std::memory_order::release);
     }
 
-    void Pool::WorkItem::enableDeletion(decltype(unstarted)::iterator self) {
+    void Pool::WorkItem::enableDeletion(TIterator self) {
         this->thisIterator = self;
     }
 
@@ -92,6 +111,8 @@ namespace WorkerPool {
         // retry loop
         while (true) {
             auto state = workItem.state.load(std::memory_order::acquire);
+            log("Pool::wait(%p): State is %s",
+                &workItem, WorkItem::workItemStateToString(state));
             switch (state) {
                 default:
                 case WorkItem::State::Done:
@@ -136,12 +157,12 @@ namespace WorkerPool {
                     }
                     // Block this thread.
                     workItem.future.wait();
+                    log("Pool::wait(%p): Done waiting for executing task", &workItem);
                     return;
                 }
             }
         }
     }
-
 
     bool Pool::threadIsExtra() const {
         return readyThreads.load(std::memory_order::acquire) > targetParallelism;
@@ -172,7 +193,7 @@ namespace WorkerPool {
             // Copy the value because we're about to use it
             // after invalidating the iterator,
             // plus to increment the reference count.
-            auto itemValue = *item;
+            auto itemValue = *item; // NOLINT(*-unnecessary-copy-initialization)
             unstarted.erase(item);
             unstartedLock.unlock();
             itemValue->execute();

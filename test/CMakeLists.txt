@@ -6,6 +6,7 @@ add_executable(test-worker-pool
         src/include/TestUtils.h
         src/TestUtils.cpp
         src/TestThreadFactory.cpp
+        src/ResultAccess.cpp
 )
 
 target_include_directories(test-worker-pool PRIVATE src/include)

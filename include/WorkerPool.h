@@ -39,8 +39,47 @@ namespace WorkerPool {
      * The pool tends to begin executing tasks in FIFO order, but this is not guaranteed.
      */
     class Pool {
+        class WorkItem {
+            friend class Pool;
+
+            enum class State {
+                Unstarted,
+                Executing,
+                Done
+            };
+
+            [[nodiscard]] static const char* workItemStateToString(State state);
+
+            size_t id;
+            std::atomic<State> state;
+            Pool& owningPool;
+            std::packaged_task<std::any()> task;
+            std::shared_future<std::any> future;
+            using TIterator = std::list<std::shared_ptr<WorkItem>>::iterator;
+            TIterator thisIterator;
+
+        public:
+            explicit WorkItem(Pool& owner,
+                              size_t id, std::packaged_task<std::any()> task);
+
+            WorkItem(const WorkItem& other) = delete;
+
+            void enableDeletion(TIterator self);
+
+            [[nodiscard]] bool operator==(const WorkItem& other) const;
+
+            [[nodiscard]] bool trySetExecuting();
+
+            void execute();
+
+            [[nodiscard]] Pool& getOwningPool() const;
+
+            [[nodiscard]] std::any getResult();
+        };
+
         template<typename T>
         friend class Task;
+        friend class WorkItem;
         std::mutex threadsMutex;
         std::atomic<size_t> readyThreads; // The number of threads that are doing work or are ready to do so.
         std::list<std::thread> threads;
@@ -113,46 +152,12 @@ namespace WorkerPool {
     private:
         std::condition_variable cv;
         std::mutex unstartedMutex;
-        class WorkItem;
         std::list<std::shared_ptr<WorkItem>> unstarted;
         std::atomic<bool> stopping = false;
 
         void throwIfStopped() const;
 
         void unsafeAddThread();
-
-        class WorkItem {
-            friend class Pool;
-
-            enum class State {
-                Unstarted,
-                Executing,
-                Done
-            };
-
-            size_t id;
-            std::atomic<State> state;
-            Pool& owningPool;
-            std::packaged_task<std::any()> task;
-            std::future<std::any> future;
-            decltype(unstarted)::iterator thisIterator;
-
-        public:
-            explicit WorkItem(Pool& owner,
-                              size_t id, std::packaged_task<std::any()> task);
-
-            void enableDeletion(decltype(unstarted)::iterator self);
-
-            [[nodiscard]] bool operator==(const WorkItem& other) const;
-
-            [[nodiscard]] bool trySetExecuting();
-
-            void execute();
-
-            [[nodiscard]] Pool& getOwningPool() const;
-
-            [[nodiscard]] std::any getResult();
-        };
 
     public:
         /**
@@ -203,61 +208,9 @@ namespace WorkerPool {
          * @param tasks Array of tasks.
          * @param count Number of tasks.
          */
+
         template<typename TResult>
-        void waitAll(Task<TResult>* tasks, size_t count) {
-            if (!allowWorkOffPoolThreads && threadOwningPool != this) {
-                naiveWaitAll(tasks, count);
-                return;
-            }
-
-            // The index of the first item that is currently being executed.
-            // Equal to count if none found yet.
-            size_t firstExecutingIndex = count;
-
-            // For each given item to await,
-            // do it synchronously if it's unstarted.
-            for (size_t i = 0; i < count; ++i) {
-                auto& item = tasks[i].wi;
-                bool needRetry = false;
-                do {
-                    const auto state = item->state.load(std::memory_order::acquire);
-                    switch (state) {
-                        default:
-                        case WorkItem::State::Done:
-                            break;
-                        case WorkItem::State::Unstarted: {
-                            if (item->trySetExecuting()) {
-                                // This item was unstarted and now we can execute it synchronously.
-                                auto itemValue = item;
-                                {
-                                    std::lock_guard lock(unstartedMutex);
-                                    unstarted.erase(item->thisIterator);
-                                }
-                                itemValue->execute();
-                            } else {
-                                // Failed to start executing it.
-                                // Recheck this item.
-                                // Its new state may be Executing or Done.
-                                needRetry = true;
-                            }
-                            break;
-                        }
-                        case WorkItem::State::Executing: {
-                            if (firstExecutingIndex > i) {
-                                firstExecutingIndex = i;
-                            }
-                            break;
-                        }
-                    }
-                } while (needRetry);
-            }
-            if (firstExecutingIndex == count) {
-                // All done.
-                return;
-            }
-            // Everything at this point should be either Executing or Done.
-            naiveWaitAll(tasks + firstExecutingIndex, count);
-        }
+        void waitAll(Task<TResult>* tasks, size_t count);
 
         /**
         * Blocks until all of the given tasks are finished.
@@ -270,7 +223,6 @@ namespace WorkerPool {
         }
     };
 
-
     /**
       * Represents a task that has been submitted to the pool.
       * @tparam TResult The type of the result of this Task.
@@ -279,8 +231,6 @@ namespace WorkerPool {
     class Task {
         friend class Pool;
         std::shared_ptr<Pool::WorkItem> wi;
-        bool haveResult = false;
-        TResult result;
 
         explicit Task(const std::shared_ptr<Pool::WorkItem>& wrapped)
             : wi(wrapped) {
@@ -292,13 +242,8 @@ namespace WorkerPool {
          * @return The result returned from this task.
          */
         TResult wait() {
-            if (haveResult)
-                return result;
             wi->getOwningPool().wait(*wi);
-            result = any_cast<TResult>(wi->getResult());
-            haveResult = true;
-            wi.reset();
-            return result;
+            return any_cast<TResult>(wi->getResult());
         }
 
         /**
@@ -306,8 +251,7 @@ namespace WorkerPool {
          * @return The result returned from this task.
          */
         [[nodiscard]] TResult getResult() {
-            wait();
-            return result;
+            return wait();
         }
     };
 
@@ -318,7 +262,6 @@ namespace WorkerPool {
     class Task<void> {
         friend class Pool;
         std::shared_ptr<Pool::WorkItem> wi;
-        bool done = false;
 
         explicit Task(const std::shared_ptr<Pool::WorkItem>& wrapped)
             : wi(wrapped) {
@@ -329,11 +272,7 @@ namespace WorkerPool {
          * Blocks until this Task is complete.
          */
         void wait() {
-            if (done)
-                return;
             wi->getOwningPool().wait(*wi);
-            wi.reset();
-            done = true;
         }
     };
 
@@ -367,5 +306,61 @@ namespace WorkerPool {
         wi->enableDeletion(it);
         cv.notify_one();
         return Task<void>(wi);
+    }
+
+    template<typename TResult>
+    void Pool::waitAll(Task<TResult>* tasks, size_t count) {
+        if (!allowWorkOffPoolThreads && threadOwningPool != this) {
+            naiveWaitAll(tasks, count);
+            return;
+        }
+
+        // The index of the first item that is currently being executed.
+        // Equal to count if none found yet.
+        size_t firstExecutingIndex = count;
+
+        // For each given item to await,
+        // do it synchronously if it's unstarted.
+        for (size_t i = 0; i < count; ++i) {
+            auto& item = tasks[i].wi;
+            bool needRetry = false;
+            do {
+                const auto state = item->state.load(std::memory_order::acquire);
+                switch (state) {
+                    default:
+                    case WorkItem::State::Done:
+                        break;
+                    case WorkItem::State::Unstarted: {
+                        if (item->trySetExecuting()) {
+                            // This item was unstarted and now we can execute it synchronously.
+                            auto itemValue = item;
+                            {
+                                std::lock_guard lock(unstartedMutex);
+                                unstarted.erase(item->thisIterator);
+                            }
+                            itemValue->execute();
+                        } else {
+                            // Failed to start executing it.
+                            // Recheck this item.
+                            // Its new state may be Executing or Done.
+                            needRetry = true;
+                        }
+                        break;
+                    }
+                    case WorkItem::State::Executing: {
+                        if (firstExecutingIndex > i) {
+                            firstExecutingIndex = i;
+                        }
+                        break;
+                    }
+                }
+            } while (needRetry);
+        }
+        if (firstExecutingIndex == count) {
+            // All done.
+            return;
+        }
+        // Everything at this point should be either Executing or Done.
+        naiveWaitAll(tasks + firstExecutingIndex, count);
     }
 }
