@@ -10,7 +10,6 @@ add_library(worker-pool
         include/WorkerPool.h
         src/WorkerPool.cpp)
 target_include_directories(worker-pool PUBLIC include)
-target_compile_options(worker-pool PRIVATE -O3)
 option(WORKER_POOL_LOGGING "Enable logging to stdout for worker pools" OFF)
 if (${WORKER_POOL_LOGGING})
     target_compile_definitions(worker-pool INTERFACE WORKER_POOL_LOGGING)

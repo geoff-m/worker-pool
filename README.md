@@ -1,6 +1,6 @@
-# worker-pool
+# WorkerPool
 
-`worker-pool` is a thread pool. It aims to be easy to use.
+WorkerPool is a thread pool. It aims to be easy to use.
 
 ## Features
  - Configurable degree of parallelism 
