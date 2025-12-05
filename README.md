@@ -14,8 +14,10 @@
 
 ### Simple example
 ```c++
+using namespace WorkerPool;
+
 // Create a pool that will run up to 2 threads in parallel.
-WorkerPool pool(2);
+Pool pool(2);
 
 // Add some tasks to the pool.
 // The pool will begin executing them as soon as possible.
@@ -29,7 +31,9 @@ t2.wait();
 
 ### Result example
 ```c++
-WorkerPool pool(1);
+using namespace WorkerPool;
+
+Pool pool(1);
 
 constexpr auto X = 2;
 constexpr auto Y = 5;
@@ -42,6 +46,7 @@ printf("%d + %d = %d\n", X, Y, sum); // Prints 2 + 5 = 7
 
 ### Different ways to add a task
 ```c++
+using namespace WorkerPool;
 
 constexpr auto X = 2;
 constexpr auto Y = 5;
@@ -59,8 +64,10 @@ Task sumTask = pool.add(add, X, Y);
 
 ### Waiting for multiple tasks
 ```c++
-WorkerPool pool(1);
-std::vector<WorkerPool::Task<void>> tasks;
+using namespace WorkerPool;
+
+Pool pool(1);
+std::vector<Pool::Task<void>> tasks;
 task.emplace_back(pool.add([]{ puts("I'm a task"); }));
 task.emplace_back(pool.add([]{ puts("I'm another task"); }));
 
@@ -71,7 +78,7 @@ pool.waitAll(tasks);
 pool.waitAll(tasks.data(), tasks.size());
 ```
 Compared with sequentially calling `Task::wait` on each of a set of tasks,
-`WorkerPool::waitAll` is more convenient,
+`Pool::waitAll` is more convenient,
 and in some scenarios, also more performant.
 
 ### Custom thread factory
@@ -79,7 +86,8 @@ and in some scenarios, also more performant.
 #include <pthread.h>
 #include <cstdio>
 ...
-WorkerPool pool(4, 4,
+using namespace WorkerPool;
+Pool pool(4, 4,
   [&](const std::function<void()>& callback) {
     return std::thread([=] {
       const auto status = pthread_setschedprio(pthread_self(), 20);
