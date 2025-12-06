@@ -192,7 +192,7 @@ namespace WorkerPool {
         void work();
 
         void wait(WorkItem& workItem);
-        
+
         template<typename TaskIterator>
         static void naiveWaitAll(TaskIterator begin, TaskIterator end) {
             for (auto it = begin; it != end; ++it) {
@@ -329,7 +329,7 @@ namespace WorkerPool {
 
     template<typename TaskIterator>
     void Pool::waitAll(TaskIterator begin, TaskIterator end) {
-           if (!allowWorkOffPoolThreads && threadOwningPool != this) {
+        if (!allowWorkOffPoolThreads && threadOwningPool != this) {
             naiveWaitAll(begin, end);
             return;
         }

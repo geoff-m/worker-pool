@@ -76,6 +76,9 @@ task.emplace_back(pool.add([]{ puts("I'm another task"); }));
 pool.waitAll(tasks);
 
 // Equivalently,
+pool.waitAll(tasks.begin(), tasks.end());
+
+// Equivalently,
 pool.waitAll(tasks.data(), tasks.size());
 ```
 Compared with sequentially calling `Task::wait` on each of a set of tasks,
