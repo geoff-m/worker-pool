@@ -39,5 +39,4 @@ RUN cmake \
   "$REPO_ROOT" && cmake --build . -j$(nproc)
 
 # Run unit tests
-RUN ctest --parallel $(nproc) -V
-
+RUN ctest --parallel $(nproc) --output-on-failure
