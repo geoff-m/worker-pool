@@ -148,3 +148,17 @@ TEST(BasicTests, WaitAllIsSmart) {
     const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
     EXPECT_LT(durationMs, 1500);
 }
+
+TEST(BasicTests, WaitAllIterators) {
+    Pool pool(1, 0, false);
+    std::atomic<int> done = 0;
+    pool.add([&] {
+        std::vector<Task<void>> subtasks;
+        auto sub1 = subtasks.emplace_back(pool.add([&] { ++done; }));
+        auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
+        auto sub3 = subtasks.emplace_back(pool.add([&] { ++done; }));
+        auto sub4 = subtasks.emplace_back(pool.add([&] { ++done; }));
+        pool.waitAll(subtasks.begin(), subtasks.end());
+    }).wait();
+    ASSERT_EQ(4, done);
+}
