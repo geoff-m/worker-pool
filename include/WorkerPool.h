@@ -215,7 +215,9 @@ namespace WorkerPool {
          * @param count Number of tasks.
          */
         template<typename TResult>
-        void waitAll(Task<TResult>* tasks, size_t count);
+        void waitAll(Task<TResult>* tasks, size_t count) {
+            waitAll(tasks, tasks + count);
+        }
 
         /**
         * Blocks until all of the given tasks are finished.
@@ -332,62 +334,6 @@ namespace WorkerPool {
         return Task<void>(wi);
     }
 
-    template<typename TResult>
-    void Pool::waitAll(Task<TResult>* tasks, size_t count) {
-        if (!allowWorkOffPoolThreads && threadOwningPool != this) {
-            naiveWaitAll(tasks, count);
-            return;
-        }
-
-        // The index of the first item that is currently being executed.
-        // Equal to count if none found yet.
-        size_t firstExecutingIndex = count;
-
-        // For each given item to await,
-        // do it synchronously if it's unstarted.
-        for (size_t i = 0; i < count; ++i) {
-            auto& item = tasks[i].wi;
-            bool needRetry = false;
-            do {
-                const auto state = item->state.load(std::memory_order::acquire);
-                switch (state) {
-                    default:
-                    case WorkItem::State::Done:
-                        break;
-                    case WorkItem::State::Unstarted: {
-                        if (item->trySetExecuting()) {
-                            // This item was unstarted and now we can execute it synchronously.
-                            auto itemValue = item;
-                            {
-                                std::lock_guard lock(unstartedMutex);
-                                unstarted.erase(item->thisIterator);
-                            }
-                            itemValue->execute();
-                        } else {
-                            // Failed to start executing it.
-                            // Recheck this item.
-                            // Its new state may be Executing or Done.
-                            needRetry = true;
-                        }
-                        break;
-                    }
-                    case WorkItem::State::Executing: {
-                        if (firstExecutingIndex > i) {
-                            firstExecutingIndex = i;
-                        }
-                        break;
-                    }
-                }
-            } while (needRetry);
-        }
-        if (firstExecutingIndex == count) {
-            // All done.
-            return;
-        }
-        // Everything at this point should be either Executing or Done.
-        naiveWaitAll(tasks + firstExecutingIndex, count);
-    }
-
     template<typename TaskIterator>
     void Pool::waitAll(TaskIterator begin, TaskIterator end) {
            if (!allowWorkOffPoolThreads && threadOwningPool != this) {
@@ -395,7 +341,7 @@ namespace WorkerPool {
             return;
         }
 
-        bool seenExecuting = false;
+        TaskIterator firstExecuting = end;
 
         // For each given item to await,
         // do it synchronously if it's unstarted.
@@ -426,17 +372,17 @@ namespace WorkerPool {
                         break;
                     }
                     case WorkItem::State::Executing: {
-                        seenExecuting = true;
+                        firstExecuting = it;
                         break;
                     }
                 }
             } while (needRetry);
         }
-        if (!seenExecuting) {
+        if (firstExecuting == end) {
             // All done.
             return;
         }
         // Everything at this point should be either Executing or Done.
-        naiveWaitAll(begin, end);
+        naiveWaitAll(firstExecuting, end);
     }
 }
