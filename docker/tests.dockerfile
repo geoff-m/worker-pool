@@ -26,8 +26,9 @@ RUN apt-get update && apt-get install -y \
 COPY CMakeLists.txt CMakeLists.txt
 COPY cmake cmake
 COPY include include
-COPY thirdparty thirdparty
+COPY src src
 COPY test test
+COPY thirdparty thirdparty
 
 # Build
 WORKDIR $REPO_ROOT/build/
