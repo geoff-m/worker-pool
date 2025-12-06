@@ -7,6 +7,7 @@ add_executable(test-worker-pool
         src/TestUtils.cpp
         src/TestThreadFactory.cpp
         src/ResultAccess.cpp
+        src/TestWaitAll.cpp
 )
 
 target_include_directories(test-worker-pool PRIVATE src/include)
