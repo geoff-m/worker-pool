@@ -28,6 +28,8 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                  };
 
 namespace WorkerPool {
+    void log([[maybe_unused]] const char* format...);
+
     class Pool;
     inline thread_local Pool* threadOwningPool;
 
@@ -340,8 +342,9 @@ namespace WorkerPool {
         // do it synchronously if it's unstarted.
         for (auto it = begin; it != end; ++it) {
             auto& item = it->wi;
-            bool needRetry = false;
+            bool needRetry;
             do {
+                needRetry = false;
                 const auto state = item->state.load(std::memory_order::acquire);
                 switch (state) {
                     default:

@@ -1,44 +1,42 @@
 #include "WorkerPool.h"
 
-
-//#define WORKER_POOL_LOGGING
-
 #ifdef WORKER_POOL_LOGGING
 #include <cstdarg>
 #include <cstdio>
 #endif
 
-static void log([[maybe_unused]] const char* format...) {
-#ifdef WORKER_POOL_LOGGING
-    va_list args;
-    va_start(args, format);
-    char buf[256];
-    buf[sizeof(buf) - 1] = '\0';
-    const auto timeNanos = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-    const auto threadKind = WorkerPool::threadOwningPool != nullptr ? "pool" : "non-pool";
-    const auto prefixLength = snprintf(buf, sizeof(buf), "%ld %s thread %lu: ",
-                                       timeNanos, threadKind, pthread_self());
-    vsnprintf(buf + prefixLength, sizeof(buf) - prefixLength, format, args);
-    puts(buf);
-    va_end(args);
-#endif
-}
-
-const char* WorkerPool::Pool::WorkItem::workItemStateToString(State state) {
-    switch (state) {
-        case State::Unstarted:
-            return "Unstarted";
-        case State::Executing:
-            return "Executing";
-        case State::Done:
-            return "Done";
-        default:
-            return "Unknown";
-    }
-}
-
 namespace WorkerPool {
+    void log(const char* format...) {
+#ifdef WORKER_POOL_LOGGING
+        va_list args;
+        va_start(args, format);
+        char buf[256];
+        buf[sizeof(buf) - 1] = '\0';
+        const auto timeNanos = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        const auto threadKind = WorkerPool::threadOwningPool != nullptr ? "pool" : "non-pool";
+        const auto prefixLength = snprintf(buf, sizeof(buf), "%ld %s thread %lu: ",
+                                           timeNanos, threadKind, pthread_self());
+        vsnprintf(buf + prefixLength, sizeof(buf) - prefixLength, format, args);
+        puts(buf);
+        va_end(args);
+#endif
+    }
+
+    const char* Pool::WorkItem::workItemStateToString(State state) {
+        switch (state) {
+            case State::Unstarted:
+                return "Unstarted";
+            case State::Executing:
+                return "Executing";
+            case State::Done:
+                return "Done";
+            default:
+                return "Unknown";
+        }
+    }
+
+
     Pool::~Pool() {
         shutDown();
         std::lock_guard lock(threadsMutex);
@@ -66,7 +64,7 @@ namespace WorkerPool {
     }
 
     Pool::WorkItem::WorkItem(Pool& owner,
-                       size_t id, std::packaged_task<std::any()> task)
+                             size_t id, std::packaged_task<std::any()> task)
         : id(id),
           owningPool(owner),
           task(std::move(task)),

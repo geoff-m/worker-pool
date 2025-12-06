@@ -4,18 +4,32 @@
 #include <list>
 #include <atomic>
 #include <chrono>
+#include <mutex>
+#include <condition_variable>
 
 using namespace WorkerPool;
 
 TEST(WaitAll, Smart) {
     Pool pool(2, 0, false);
     const auto startTime = std::chrono::steady_clock::now();
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool task1Started = false;
     pool.add([&] {
         std::vector<Task<void>> subtasks;
-        auto sub1 = subtasks.emplace_back(pool.add([] { sleepMs(1000); }));
+        auto sub1 = subtasks.emplace_back(pool.add([&] {
+            {
+                std::lock_guard lock(mutex);
+                task1Started = true;
+                cv.notify_one();
+            }
+            sleepMs(1000);
+        }));
 
-        // Give time for pool to start sub1.
-        sleepMs(100);
+        {
+            std::unique_lock lock(mutex);
+            cv.wait(lock, [&] { return task1Started; });
+        }
 
         auto sub2 = subtasks.emplace_back(pool.add([] { sleepMs(1000); }));
 
@@ -39,7 +53,7 @@ TEST(WaitAll, Iterators) {
     ASSERT_EQ(2, done);
 }
 
-TEST(BasicTests, Vector) {
+TEST(WaitAll, Vector) {
     Pool pool(1, 0, false);
     std::atomic<int> done = 0;
     pool.add([&] {
@@ -51,7 +65,7 @@ TEST(BasicTests, Vector) {
     ASSERT_EQ(2, done);
 }
 
-TEST(BasicTests, Array) {
+TEST(WaitAll, Array) {
     Pool pool(1, 0, false);
     std::atomic<int> done = 0;
     pool.add([&] {
@@ -63,7 +77,7 @@ TEST(BasicTests, Array) {
     ASSERT_EQ(2, done);
 }
 
-TEST(BasicTests, Iterable) {
+TEST(WaitAll, Iterable) {
     Pool pool(1, 0, false);
     std::atomic<int> done = 0;
     pool.add([&] {
@@ -73,5 +87,70 @@ TEST(BasicTests, Iterable) {
         auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
         pool.waitAll(subtasks);
     }).wait();
+    ASSERT_EQ(2, done);
+}
+
+TEST(WaitAll, FirstIsSlow) {
+    Pool pool(4, 0, false);
+    std::atomic<int> done = 0;
+    const auto startTime = std::chrono::steady_clock::now();
+    pool.add([&] {
+        std::list<Task<void>> subtasks;
+        auto sub1 = subtasks.emplace_back(pool.add([&] {
+            sleepMs(1000);
+            ++done;
+        }));
+        auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
+        pool.waitAll(subtasks);
+    }).wait();
+    const auto endTime = std::chrono::steady_clock::now();
+    const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    EXPECT_GE(durationMs, 1000);
+    EXPECT_LT(durationMs, 1500);
+    ASSERT_EQ(2, done);
+}
+
+TEST(WaitAll, LastIsSlow) {
+    Pool pool(4, 0, false);
+    std::atomic<int> done = 0;
+    const auto startTime = std::chrono::steady_clock::now();
+    pool.add([&] {
+        std::list<Task<void>> subtasks;
+        auto sub1 = subtasks.emplace_back(pool.add([&] { ++done; }));
+        auto sub2 = subtasks.emplace_back(pool.add([&] {
+            sleepMs(1000);
+            ++done;
+        }));
+        pool.waitAll(subtasks);
+    }).wait();
+    const auto endTime = std::chrono::steady_clock::now();
+    const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    EXPECT_GE(durationMs, 1000);
+    EXPECT_LT(durationMs, 1500);
+    ASSERT_EQ(2, done);
+    ASSERT_EQ(2, done);
+}
+
+TEST(WaitAll, SlowTwo) {
+    Pool pool(1, 0, false);
+    std::atomic<int> done = 0;
+    const auto startTime = std::chrono::steady_clock::now();
+    pool.add([&] {
+        std::list<Task<void>> subtasks;
+        auto sub1 = subtasks.emplace_back(pool.add([&] {
+            sleepMs(1000);
+            ++done;
+        }));
+        auto sub2 = subtasks.emplace_back(pool.add([&] {
+            sleepMs(1000);
+            ++done;
+        }));
+        pool.waitAll(subtasks);
+    }).wait();
+    const auto endTime = std::chrono::steady_clock::now();
+    const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    EXPECT_GE(durationMs, 2000);
+    EXPECT_LT(durationMs, 2500);
+    ASSERT_EQ(2, done);
     ASSERT_EQ(2, done);
 }
