@@ -6,8 +6,8 @@ WorkerPool is a thread pool. It aims to be easy to use.
  - Configurable degree of parallelism
  - Tasks can be void or have copy-constructible output
  - Tasks can create and await other tasks
+ - The pool can await multiple tasks at once
  - You can provide your own thread factory
- - The pool can await a collection of tasks
  - Not global, allows multiple pools in one process
  - Simple API with good defaults
 
