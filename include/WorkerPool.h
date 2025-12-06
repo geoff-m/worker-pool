@@ -372,7 +372,9 @@ namespace WorkerPool {
                         break;
                     }
                     case WorkItem::State::Executing: {
-                        firstExecuting = it;
+                        if (firstExecuting == end) {
+                            firstExecuting = it;
+                        }
                         break;
                     }
                 }
