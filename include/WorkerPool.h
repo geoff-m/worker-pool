@@ -192,14 +192,7 @@ namespace WorkerPool {
         void work();
 
         void wait(WorkItem& workItem);
-
-        template<typename TResult>
-        static void naiveWaitAll(Task<TResult>* tasks, size_t count) {
-            for (size_t i = 0; i < count; ++i) {
-                tasks[i].wait();
-            }
-        }
-
+        
         template<typename TaskIterator>
         static void naiveWaitAll(TaskIterator begin, TaskIterator end) {
             for (auto it = begin; it != end; ++it) {
