@@ -81,10 +81,10 @@ namespace WorkerPool {
         friend class Task;
         friend class WorkItem;
         std::mutex threadsMutex;
-        std::atomic<size_t> readyThreads; // The number of threads that are doing work or are ready to do so.
+        std::atomic<unsigned int> readyThreads; // The number of threads that are doing work or are ready to do so.
         std::list<std::thread> threads;
-        const size_t targetParallelism;
-        const size_t maxWaiterThreads;
+        const unsigned int targetParallelism;
+        const unsigned int maxWaiterThreads;
         const std::function<std::thread(std::function<void()>)> threadFactory;
         const bool allowWorkOffPoolThreads;
 
@@ -98,7 +98,7 @@ namespace WorkerPool {
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
         template<typename ThreadFactory>
-        Pool(int targetParallelism, int extraThreads, ThreadFactory threadFactory,
+        Pool(unsigned int targetParallelism, unsigned int extraThreads, ThreadFactory threadFactory,
              bool allowWorkOffPoolThreads = true)
             : targetParallelism(targetParallelism),
               maxWaiterThreads(extraThreads),
@@ -108,10 +108,8 @@ namespace WorkerPool {
               allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
             if (targetParallelism <= 0)
                 throw std::invalid_argument("Target parallelism must be at least 1");
-            if (extraThreads < 0)
-                throw std::invalid_argument("Maximum waiter threads must be nonnegative");
             std::lock_guard lock(threadsMutex);
-            for (int i = 0; i < targetParallelism; i++)
+            for (unsigned int i = 0; i < targetParallelism; i++)
                 unsafeAddThread();
         }
 
@@ -121,7 +119,7 @@ namespace WorkerPool {
          * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
-        Pool(int targetParallelism, int extraThreads, bool allowWorkOffPoolThreads = true) : Pool(
+        Pool(unsigned int targetParallelism, unsigned int extraThreads, bool allowWorkOffPoolThreads = true) : Pool(
             targetParallelism, extraThreads,
             [](const std::function<void()>& callback) { return std::thread(callback); },
             allowWorkOffPoolThreads) {
@@ -131,7 +129,7 @@ namespace WorkerPool {
          * Creates a new WorkerPool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
         */
-        explicit Pool(int targetParallelism) : Pool(targetParallelism, targetParallelism) {
+        explicit Pool(unsigned int targetParallelism) : Pool(targetParallelism, targetParallelism) {
         }
 
         /**

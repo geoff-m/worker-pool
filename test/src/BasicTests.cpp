@@ -117,8 +117,8 @@ TEST(StressTests, Parallelism) {
     EXPECT_NEAR(WAIT_MS, waitDurationMs, 250);
 }
 
-TEST(BasicTests, NoExtra) {
-    Pool pool(2, 0);
+TEST(BasicTests, RunSynchronouslyDuringWait) {
+    Pool pool(1, 0, false);
     const auto startTime = std::chrono::steady_clock::now();
     pool.add([&] {
         auto sub = pool.add([] { sleepMs(1000); });
