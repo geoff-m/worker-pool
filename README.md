@@ -3,12 +3,13 @@
 WorkerPool is a thread pool. It aims to be easy to use.
 
 ## Features
- - Configurable degree of parallelism 
+ - Configurable degree of parallelism
  - Tasks can be void or have copy-constructible output
  - Tasks can create and await other tasks
  - You can provide your own thread factory
- - Can await a collection of tasks
+ - The pool can await a collection of tasks
  - Not global, allows multiple pools in one process
+ - Simple API with good defaults
 
 ## Usage
 
@@ -67,7 +68,7 @@ Task sumTask = pool.add(add, X, Y);
 using namespace WorkerPool;
 
 Pool pool(1);
-std::vector<Pool::Task<void>> tasks;
+std::vector<Task<void>> tasks;
 task.emplace_back(pool.add([]{ puts("I'm a task"); }));
 task.emplace_back(pool.add([]{ puts("I'm another task"); }));
 
@@ -82,19 +83,28 @@ Compared with sequentially calling `Task::wait` on each of a set of tasks,
 and in some scenarios, also more performant.
 
 ### Custom thread factory
+You can provide your own thread for use by the pool.
+To do so, provide a callable that takes the pool's `std::function<void()>` callback
+and returns a `std::thread` that executes it.
+When you don't provide a thread factory,
+the pool just uses the std::thread constructor for this purpose. 
 ```c++
 #include <pthread.h>
 #include <cstdio>
 ...
 using namespace WorkerPool;
+
 Pool pool(4, 4,
   [&](const std::function<void()>& callback) {
     return std::thread([=] {
+      // Custom logic to set up this pool thread
       const auto status = pthread_setschedprio(pthread_self(), 20);
       if (status != 0) {
         errno = status;
         perror("pthread_setschedprio");
       }
+      
+      // Execute the thread pool's code
       callback();
     });
  });
