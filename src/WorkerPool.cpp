@@ -64,11 +64,14 @@ namespace WorkerPool {
     }
 
     Pool::WorkItem::WorkItem(Pool& owner,
-                             size_t id, std::packaged_task<std::any()> task)
+                             size_t id,
+                             std::packaged_task<std::any()> task,
+                             std::string name)
         : id(id),
           owningPool(owner),
           task(std::move(task)),
-          future(this->task.get_future().share()) {
+          future(this->task.get_future().share()),
+    name(std::move(name)){
         state.store(State::Unstarted, std::memory_order::release);
     }
 
@@ -83,18 +86,18 @@ namespace WorkerPool {
     bool Pool::WorkItem::trySetExecuting() {
         State oldState = State::Unstarted;
         if (state.compare_exchange_strong(oldState, State::Executing)) {
-            log("trySetExecuting succeeded for task %p", reinterpret_cast<const void*>(this));
+            log("trySetExecuting succeeded for task %s", getName().c_str());
             return true;
         }
-        log("trySetExecuting failed for task %p", reinterpret_cast<const void*>(this));
+        log("trySetExecuting failed for task %s", getName().c_str());
         return false;
     }
 
     void Pool::WorkItem::execute() {
-        log("Beginning task %p", reinterpret_cast<const void*>(this));
+        log("Beginning task %s", getName().c_str());
         task();
         state.store(State::Done, std::memory_order::release);
-        log("Finished task %p", reinterpret_cast<const void*>(this));
+        log("Finished task %s", getName().c_str());
     }
 
     Pool& Pool::WorkItem::getOwningPool() const {
@@ -105,12 +108,16 @@ namespace WorkerPool {
         return future.get();
     }
 
+    std::string Pool::WorkItem::getName() const {
+        return name;
+    }
+
     void Pool::wait(WorkItem& workItem) {
         // retry loop
         while (true) {
             auto state = workItem.state.load(std::memory_order::acquire);
-            log("Pool::wait(%p): State is %s",
-                &workItem, WorkItem::workItemStateToString(state));
+            log("Pool::wait(%s): State is %s",
+                workItem.getName().c_str(), WorkItem::workItemStateToString(state));
             switch (state) {
                 default:
                 case WorkItem::State::Done:
@@ -124,7 +131,7 @@ namespace WorkerPool {
                         return;
                     }
                     // Execute it synchronously.
-                    log("Wait called for unstarted task %p", reinterpret_cast<const void*>(&workItem));
+                    log("Wait called for unstarted task %s", workItem.getName().c_str());
                     bool doExecute = false;
                     {
                         std::lock_guard lock(unstartedMutex);
@@ -155,7 +162,7 @@ namespace WorkerPool {
                     }
                     // Block this thread.
                     workItem.future.wait();
-                    log("Pool::wait(%p): Done waiting for executing task", &workItem);
+                    log("Pool::wait(%s): Done waiting for executing task", workItem.getName().c_str());
                     return;
                 }
             }

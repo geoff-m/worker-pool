@@ -58,12 +58,15 @@ namespace WorkerPool {
             Pool& owningPool;
             std::packaged_task<std::any()> task;
             std::shared_future<std::any> future;
+            const std::string name;
             using TIterator = std::list<std::shared_ptr<WorkItem>>::iterator;
             TIterator thisIterator;
 
         public:
             explicit WorkItem(Pool& owner,
-                              size_t id, std::packaged_task<std::any()> task);
+                              size_t id,
+                              std::packaged_task<std::any()> task,
+                              std::string name);
 
             WorkItem(const WorkItem& other) = delete;
 
@@ -78,6 +81,8 @@ namespace WorkerPool {
             [[nodiscard]] Pool& getOwningPool() const;
 
             [[nodiscard]] std::any getResult();
+
+            [[nodiscard]] std::string getName() const;
         };
 
         template<typename T>
@@ -176,6 +181,18 @@ namespace WorkerPool {
          * Adds a callback to the pool.
          * @tparam TCallback Type of the callback function.
          * @tparam TArgs Types of the arguments to the callback.
+         * @param name Name of the task
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return A Task representing the work associated with this call.
+         */
+        template<typename TCallback, typename... TArgs>
+        auto add(std::string name, TCallback callback, TArgs... args) -> Task<decltype(std::invoke(callback, args...))>;
+
+        /**
+         * Adds a void callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
          * @param callback The function that will perform the work.
          * @param args The arguments, if any, to the callback function.
          * @return A Task representing the work associated with this call.
@@ -183,6 +200,19 @@ namespace WorkerPool {
         template<typename TCallback, typename... TArgs>
             requires invocable_returns_void<TCallback, TArgs...>
         auto add(TCallback callback, TArgs... args) -> Task<void>;
+
+        /**
+         * Adds a void callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
+         * @param name Name of the task
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return A Task representing the work associated with this call.
+         */
+        template<typename TCallback, typename... TArgs>
+            requires invocable_returns_void<TCallback, TArgs...>
+        auto add(std::string name, TCallback callback, TArgs... args) -> Task<void>;
 
     private:
         size_t lastItemId = 0;
@@ -197,6 +227,7 @@ namespace WorkerPool {
 
         template<typename TaskIterator>
         static void naiveWaitAll(TaskIterator begin, TaskIterator end) {
+            log("naiveWaitAll(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
             for (auto it = begin; it != end; ++it) {
                 it->wait();
             }
@@ -274,6 +305,10 @@ namespace WorkerPool {
         [[nodiscard]] TResult getResult() {
             return wait();
         }
+
+        [[nodiscard]] std::string getName() const {
+            return wi->getName();
+        }
     };
 
     /**
@@ -295,34 +330,50 @@ namespace WorkerPool {
         void wait() {
             wi->getOwningPool().wait(*wi);
         }
+
+        [[nodiscard]] std::string getName() const {
+            return wi->getName();
+        }
     };
 
-    // Overload for non-void callback
     template<typename TCallback, typename... TArgs>
     auto Pool::add(TCallback callback, TArgs... args) -> Task<decltype(std::invoke(callback, args...))> {
+        return add("", callback, args...);
+    }
+
+    template<typename TCallback, typename... TArgs>
+    auto Pool::add(std::string name, TCallback callback,
+                   TArgs... args) -> Task<decltype(std::invoke(callback, args...))> {
         using TResult = decltype(std::invoke(callback, args...));
         std::lock_guard lock(unstartedMutex);
         throwIfStopped();
-        auto wi = std::make_shared<WorkItem>(*this, lastItemId++, std::packaged_task<std::any()>([=] {
-            TResult result = std::invoke(callback, args...);
-            return std::any(result);
-        }));
+        auto wi = std::make_shared<WorkItem>(*this,
+                                             lastItemId++,
+                                             std::packaged_task<std::any()>([=] {
+                                                 TResult result = std::invoke(callback, args...);
+                                                 return std::any(result);
+                                             }), name);
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
         cv.notify_one();
         return Task<TResult>(wi);
     }
 
-    // Overload for void callback
     template<typename TCallback, typename... TArgs>
         requires invocable_returns_void<TCallback, TArgs...>
     auto Pool::add(TCallback callback, TArgs... args) -> Task<void> {
+        return add("", callback, args...);
+    }
+
+    template<typename TCallback, typename... TArgs>
+        requires invocable_returns_void<TCallback, TArgs...>
+    auto Pool::add(std::string name, TCallback callback, TArgs... args) -> Task<void> {
         std::lock_guard lock(unstartedMutex);
         throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this, lastItemId++, std::packaged_task<std::any()>([=] {
             std::invoke(callback, args...);
             return std::any(0); // dummy value
-        }));
+        }), name);
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
         cv.notify_one();
@@ -331,6 +382,7 @@ namespace WorkerPool {
 
     template<typename TaskIterator>
     void Pool::waitAll(TaskIterator begin, TaskIterator end) {
+        log("waitAll(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
         if (!allowWorkOffPoolThreads && threadOwningPool != this) {
             naiveWaitAll(begin, end);
             return;
@@ -346,6 +398,7 @@ namespace WorkerPool {
             do {
                 needRetry = false;
                 const auto state = item->state.load(std::memory_order::acquire);
+                log("%s state is %s", it->getName().c_str(), WorkItem::workItemStateToString(state));
                 switch (state) {
                     default:
                     case WorkItem::State::Done:
@@ -370,6 +423,7 @@ namespace WorkerPool {
                     case WorkItem::State::Executing: {
                         if (firstExecuting == end) {
                             firstExecuting = it;
+                            log("firstExecuting = %s", firstExecuting->getName().c_str());
                         }
                         break;
                     }
