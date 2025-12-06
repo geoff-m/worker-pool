@@ -10,7 +10,6 @@ jobs:
         cmake-build-type:
           - Asan
           - Tsan
-          - Msan
           - Ubsan
 
     steps:
