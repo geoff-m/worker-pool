@@ -9,6 +9,7 @@ WorkerPool is a thread pool. It aims to be easy to use.
  - The pool can await multiple tasks at once
  - You can provide your own thread factory
  - Not global, allows multiple pools in one process
+ - Tasks can have names
  - Simple API with good defaults
 
 ## Usage
@@ -89,8 +90,6 @@ and in some scenarios, also more performant.
 You can provide your own thread for use by the pool.
 To do so, provide a callable that takes the pool's `std::function<void()>` callback
 and returns a `std::thread` that executes it.
-When you don't provide a thread factory,
-the pool just uses the std::thread constructor for this purpose. 
 ```c++
 #include <pthread.h>
 #include <cstdio>
@@ -113,6 +112,22 @@ Pool pool(4, 4,
  });
 ```
 All threads created by the above pool will have their priority set to 20.
+
+### Named tasks
+Tasks can be given names, which you might find useful for debugging or other purposes.
+
+You assign a task's name when you create it,
+and you can retrieve the task's name with `Task::getName()`.
+Outside of this, the library does not use a task's name for any purpose.
+```c++
+using namespace WorkerPool;
+
+Pool pool(2);
+auto task = pool.add("apples", []{});
+
+// Will print "Created task apples"
+std::cout << "Created task " << task.getName() << '\n';
+```
 
 ### More examples
 

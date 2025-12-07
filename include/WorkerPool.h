@@ -388,10 +388,9 @@ namespace WorkerPool {
             return;
         }
 
-        TaskIterator firstExecuting = end;
-
         // For each given item to await,
         // do it synchronously if it's unstarted.
+        TaskIterator firstExecuting = end;
         for (auto it = begin; it != end; ++it) {
             auto& item = it->wi;
             bool needRetry;
@@ -423,7 +422,6 @@ namespace WorkerPool {
                     case WorkItem::State::Executing: {
                         if (firstExecuting == end) {
                             firstExecuting = it;
-                            log("firstExecuting = %s", firstExecuting->getName().c_str());
                         }
                         break;
                     }
