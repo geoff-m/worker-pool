@@ -1,4 +1,15 @@
 
+find_package(GoogleTest QUIET)
+if(NOT GoogleTest_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(
+            GoogleTest
+            GIT_REPOSITORY https://github.com/google/googletest.git
+            GIT_TAG        52eb8108c5bdec04579160ae17225d66034bd723 # v1.17.0
+    )
+    FetchContent_MakeAvailable(GoogleTest)
+endif()
+
 add_executable(test-worker-pool
         src/BasicTests.cpp
         src/StressTests.cpp

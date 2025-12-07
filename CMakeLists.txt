@@ -17,7 +17,6 @@ endif ()
 
 option(WORKER_POOL_TEST "Enable unit tests" ON)
 if (WORKER_POOL_TEST)
-    add_subdirectory(thirdparty/googletest)
     enable_testing()
     add_subdirectory(test)
 endif ()
