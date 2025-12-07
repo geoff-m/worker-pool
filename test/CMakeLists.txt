@@ -1,6 +1,9 @@
 
 find_package(GoogleTest QUIET)
-if(NOT GoogleTest_FOUND)
+if(GoogleTest_FOUND)
+    message(STATUS "Will use found GoogleTest package")
+else()
+    message(STATUS "GoogleTest package not found--will attempt to download it")
     include(FetchContent)
     FetchContent_Declare(
             GoogleTest
