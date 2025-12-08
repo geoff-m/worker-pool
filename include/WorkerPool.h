@@ -264,15 +264,14 @@ namespace WorkerPool {
             if (begin == end)
                 return true;
             log("naiveWaitAll(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
+            const auto expiryTime = std::chrono::steady_clock::now() + timeout;
             auto remainingTimeout = duration_cast<std::chrono::steady_clock::duration>(timeout);
             for (auto it = begin; it != end; ++it) {
                 if (remainingTimeout < std::chrono::milliseconds(0))
                     return false;
-                const auto waitStartTime = std::chrono::steady_clock::now();
                 if (!it->wait(remainingTimeout))
                     return false;
-                const auto waitEndTime = std::chrono::steady_clock::now();
-                remainingTimeout = remainingTimeout - (waitEndTime - waitStartTime);
+                remainingTimeout = expiryTime - std::chrono::steady_clock::now();
             }
             return true;
         }
