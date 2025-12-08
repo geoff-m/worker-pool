@@ -112,11 +112,26 @@ namespace WorkerPool {
         return name;
     }
 
+    void Pool::maybeAddThreadBeforeWait(const WorkItem& workItem) {
+        if (&workItem.owningPool == this && threadOwningPool == this) {
+            // We are about to block a pool thread, so consider creating an extra thread.
+            if (readyThreads.load(std::memory_order::acquire) < targetParallelism + maxWaiterThreads) {
+                // We have quota to create an extra thread to make up for waiting.
+                log("Creating extra thread");
+                std::lock_guard lock(threadsMutex);
+                unsafeAddThread();
+            }
+            log("Not creating extra thread because no quota");
+        } else {
+            log("Not creating extra thread because waiter is not a pool thread");
+        }
+    }
+
     void Pool::wait(WorkItem& workItem) {
         // retry loop
         while (true) {
             auto state = workItem.state.load(std::memory_order::acquire);
-            log("Pool::wait(%s): State is %s",
+            log("Untimed wait for task %s (task is %s)",
                 workItem.getName().c_str(), WorkItem::workItemStateToString(state));
             switch (state) {
                 default:
@@ -131,7 +146,6 @@ namespace WorkerPool {
                         return;
                     }
                     // Execute it synchronously.
-                    log("Wait called for unstarted task %s", workItem.getName().c_str());
                     bool doExecute = false;
                     {
                         std::lock_guard lock(unstartedMutex);
@@ -148,21 +162,9 @@ namespace WorkerPool {
                 }
                 case WorkItem::State::Executing: {
                     // Waiting for an item that's currently being executed.
-                    if (&workItem.owningPool == this && threadOwningPool == this) {
-                        // We are about to block a pool thread, so consider creating an extra thread.
-                        if (readyThreads.load(std::memory_order::acquire) < targetParallelism + maxWaiterThreads) {
-                            // We have quota to create an extra thread to make up for waiting.
-                            log("Wait called: creating extra thread");
-                            std::lock_guard lock(threadsMutex);
-                            unsafeAddThread();
-                        }
-                        log("Wait called: not creating extra thread because no quota");
-                    } else {
-                        log("Wait called: not creating extra thread because waiter is a non-pool thread");
-                    }
+                    maybeAddThreadBeforeWait(workItem);
                     // Block this thread.
                     workItem.future.wait();
-                    log("Pool::wait(%s): Done waiting for executing task", workItem.getName().c_str());
                     return;
                 }
             }

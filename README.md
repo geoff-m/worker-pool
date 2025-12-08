@@ -7,6 +7,7 @@ WorkerPool is a thread pool. It aims to be easy to use.
  - Tasks can be void or have copy-constructible output
  - Tasks can create and await other tasks
  - The pool can await multiple tasks at once
+ - Supports timeouts for waits
  - You can provide your own thread factory
  - Not global, allows multiple pools in one process
  - Tasks can have names
@@ -85,6 +86,33 @@ pool.waitAll(tasks.data(), tasks.size());
 Compared with sequentially calling `Task::wait` on each of a set of tasks,
 `Pool::waitAll` is more convenient,
 and in some scenarios, also more performant.
+
+### Timed waiting
+Simply add a timeout duration argument to `wait` or `waitAll`
+to make the wait give up after a certain amount of time.
+A `bool` will be returned:
+ - `true` if the awaited operation(s) finished
+ - `false` if the timeout elapsed
+```c++
+// Timed wait for single task
+auto task = pool.add(/* ... */);
+const auto TIMEOUT = std::chrono::seconds(1);
+if (task.wait(TIMEOUT))
+    puts("Task is done");
+else
+    puts("Task timed out");
+
+// Timed wait for multiple tasks
+std::vector<Task<void>> tasks;
+task.emplace_back(pool.add(/* ... */}));
+task.emplace_back(pool.add(/* ... */}));
+task.emplace_back(pool.add(/* ... */}));
+
+if (pool.waitAll(tasks, TIMEOUT))
+    puts("All tasks are done");
+else
+    puts("Not all tasks are done");
+```
 
 ### Custom thread factory
 You can provide your own thread for use by the pool.
