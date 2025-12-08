@@ -41,7 +41,7 @@ Pool pool(1);
 constexpr auto X = 2;
 constexpr auto Y = 5;
 Task sumTask = pool.add([X, Y]{ return X + Y; });
-
+ 
 sumTask.wait(); // Calling wait is not needed here, since getResult will wait.
 const auto sum = sumTask.getResult();
 printf("%d + %d = %d\n", X, Y, sum); // Prints 2 + 5 = 7
@@ -104,9 +104,9 @@ else
 
 // Timed wait for multiple tasks
 std::vector<Task<void>> tasks;
-task.emplace_back(pool.add(/* ... */}));
-task.emplace_back(pool.add(/* ... */}));
-task.emplace_back(pool.add(/* ... */}));
+task.emplace_back(pool.add(/* ... */));
+task.emplace_back(pool.add(/* ... */));
+task.emplace_back(pool.add(/* ... */));
 
 if (pool.waitAll(tasks, TIMEOUT))
     puts("All tasks are done");
