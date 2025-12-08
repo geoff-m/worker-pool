@@ -23,6 +23,7 @@ add_executable(test-worker-pool
         src/ResultAccess.cpp
         src/TestWaitAll.cpp
         src/TestName.cpp
+        src/TimedWait.cpp
 )
 
 target_include_directories(test-worker-pool PRIVATE src/include)

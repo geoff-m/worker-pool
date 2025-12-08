@@ -3,7 +3,7 @@
 #include <chrono>
 #include <iostream>
 
-using namespace  WorkerPool;
+using namespace WorkerPool;
 
 TEST(BasicTests, Create0) {
     EXPECT_ANY_THROW(Pool pool(0););
@@ -111,9 +111,10 @@ TEST(StressTests, Parallelism) {
     }
     const auto waitStartTime = std::chrono::steady_clock::now();
     for (size_t i = 0; i < threadCount; ++i)
-         futures[i].wait();
+        futures[i].wait();
     const auto waitEndTime = std::chrono::steady_clock::now();
-    const auto waitDurationMs = std::chrono::duration_cast<std::chrono::milliseconds>(waitEndTime - waitStartTime).count();
+    const auto waitDurationMs = std::chrono::duration_cast<std::chrono::milliseconds>(waitEndTime - waitStartTime).
+            count();
     EXPECT_NEAR(WAIT_MS, waitDurationMs, 250);
 }
 
