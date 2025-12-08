@@ -1,4 +1,18 @@
 
+find_package(GoogleTest QUIET)
+if(GoogleTest_FOUND)
+    message(STATUS "Will use found GoogleTest package")
+else()
+    message(STATUS "GoogleTest package not found--will attempt to download it")
+    include(FetchContent)
+    FetchContent_Declare(
+            GoogleTest
+            GIT_REPOSITORY https://github.com/google/googletest.git
+            GIT_TAG        52eb8108c5bdec04579160ae17225d66034bd723 # v1.17.0
+    )
+    FetchContent_MakeAvailable(GoogleTest)
+endif()
+
 add_executable(test-worker-pool
         src/BasicTests.cpp
         src/StressTests.cpp

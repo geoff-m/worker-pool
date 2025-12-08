@@ -28,7 +28,6 @@ COPY cmake cmake
 COPY include include
 COPY src src
 COPY test test
-COPY thirdparty thirdparty
 
 # Build
 WORKDIR $REPO_ROOT/build/
