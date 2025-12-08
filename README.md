@@ -163,4 +163,4 @@ The unit tests in `test/src/` are good sources of further examples.
 
 ## Further reading
 
-A discussion of some of the task waiting features can be found [on my blog](https://geoff.space/2025/12/notes-on-a-thread-pool/).
+A discussion of the design of the task waiting features can be found [on my blog](https://geoff.space/2025/12/intelligent-waiting-in-a-thread-pool/).
