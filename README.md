@@ -71,8 +71,8 @@ using namespace WorkerPool;
 
 Pool pool(1);
 std::vector<Task<void>> tasks;
-task.emplace_back(pool.add([]{ puts("I'm a task"); }));
-task.emplace_back(pool.add([]{ puts("I'm another task"); }));
+tasks.emplace_back(pool.add([]{ puts("I'm a task"); }));
+tasks.emplace_back(pool.add([]{ puts("I'm another task"); }));
 
 // Wait for all tasks to be finished.
 pool.waitAll(tasks);
@@ -104,9 +104,9 @@ else
 
 // Timed wait for multiple tasks
 std::vector<Task<void>> tasks;
-task.emplace_back(pool.add(/* ... */));
-task.emplace_back(pool.add(/* ... */));
-task.emplace_back(pool.add(/* ... */));
+tasks.emplace_back(pool.add(/* ... */));
+tasks.emplace_back(pool.add(/* ... */));
+tasks.emplace_back(pool.add(/* ... */));
 
 if (pool.waitAll(tasks, TIMEOUT))
     puts("All tasks are done");
