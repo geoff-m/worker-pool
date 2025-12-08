@@ -9,6 +9,12 @@
 
 using namespace WorkerPool;
 
+TEST(WaitAll, Empty) {
+    Pool pool(2);
+    std::vector<Task<void>> t;
+    pool.waitAll(t);
+}
+
 TEST(WaitAll, Smart) {
     Pool pool(2, 0, false);
     const auto startTime = std::chrono::steady_clock::now();

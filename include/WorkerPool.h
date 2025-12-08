@@ -110,7 +110,7 @@ namespace WorkerPool {
              bool allowWorkOffPoolThreads = true)
             : targetParallelism(targetParallelism),
               maxWaiterThreads(extraThreads),
-              threadFactory([threadFactory](const std::function<void()>& callback) {
+              threadFactory([&threadFactory](const std::function<void()>& callback) {
                   return threadFactory(std::move(callback));
               }),
               allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
@@ -227,6 +227,8 @@ namespace WorkerPool {
 
         template<typename TaskIterator>
         static void naiveWaitAll(TaskIterator begin, TaskIterator end) {
+            if (begin == end)
+                return;
             log("naiveWaitAll(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
             for (auto it = begin; it != end; ++it) {
                 it->wait();
@@ -382,6 +384,8 @@ namespace WorkerPool {
 
     template<typename TaskIterator>
     void Pool::waitAll(TaskIterator begin, TaskIterator end) {
+        if (begin == end)
+            return;
         log("waitAll(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
         if (!allowWorkOffPoolThreads && threadOwningPool != this) {
             naiveWaitAll(begin, end);
