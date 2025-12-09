@@ -8,19 +8,19 @@ WorkerPool is a thread pool. It aims to be easy to use.
  - Tasks can create and await other tasks
  - The pool can await multiple tasks at once
  - Supports timeouts for waits
+ - Simple API; `worker_pool::task` resembles `std::shared_future`
  - You can provide your own thread factory
  - Not global, allows multiple pools in one process
  - Tasks can have names
- - Simple API with good defaults
 
 ## Usage
 
 ### Simple example
 ```c++
-using namespace WorkerPool;
+using namespace worker_pool;
 
 // Create a pool that will run up to 2 threads in parallel.
-Pool pool(2);
+pool pool(2);
 
 // Add some tasks to the pool.
 // The pool will begin executing them as soon as possible.
@@ -34,9 +34,9 @@ t2.wait();
 
 ### Result example
 ```c++
-using namespace WorkerPool;
+using namespace worker_pool;
 
-Pool pool(1);
+pool pool(1);
 
 constexpr auto X = 2;
 constexpr auto Y = 5;
@@ -49,7 +49,7 @@ printf("%d + %d = %d\n", X, Y, sum); // Prints 2 + 5 = 7
 
 ### Different ways to add a task
 ```c++
-using namespace WorkerPool;
+using namespace worker_pool;
 
 constexpr auto X = 2;
 constexpr auto Y = 5;
@@ -67,37 +67,39 @@ Task sumTask = pool.add(add, X, Y);
 
 ### Waiting for multiple tasks
 ```c++
-using namespace WorkerPool;
+using namespace worker_pool;
 
-Pool pool(1);
+pool pool(1);
 std::vector<Task<void>> tasks;
 tasks.emplace_back(pool.add([]{ puts("I'm a task"); }));
 tasks.emplace_back(pool.add([]{ puts("I'm another task"); }));
 
 // Wait for all tasks to be finished.
-pool.waitAll(tasks);
+pool.wait_all(tasks);
 
 // Equivalently,
-pool.waitAll(tasks.begin(), tasks.end());
+pool.wait_all(tasks.begin(), tasks.end());
 
 // Equivalently,
-pool.waitAll(tasks.data(), tasks.size());
+pool.wait_all(tasks.data(), tasks.size());
 ```
-Compared with sequentially calling `Task::wait` on each of a set of tasks,
-`Pool::waitAll` is more convenient,
-and in some scenarios, also more performant.
+Compared with sequentially calling `task::wait` on each of a set of tasks,
+`pool::wait_all` is more convenient, and in some scenarios, also more performant.
 
 ### Timed waiting
-Simply add a timeout duration argument to `wait` or `waitAll`
-to make the wait give up after a certain amount of time.
-A `bool` will be returned:
- - `true` if the awaited operation(s) finished
- - `false` if the timeout elapsed
+`wait` and `wait_all` have counterparts that can time out:
+ - `wait_for`
+ - `wait_until`
+ - `wait_all_for`
+ - `wait_all_until`
+   
+All of these return a `bool`:
+ - `true` indicates the awaited operation(s) finished
+ - `false` indicates the timeout elapsed
 ```c++
 // Timed wait for single task
 auto task = pool.add(/* ... */);
-const auto TIMEOUT = std::chrono::seconds(1);
-if (task.wait(TIMEOUT))
+if (task.wait_for(std::chrono::seconds(1))) 
     puts("Task is done");
 else
     puts("Task timed out");
@@ -106,9 +108,8 @@ else
 std::vector<Task<void>> tasks;
 tasks.emplace_back(pool.add(/* ... */));
 tasks.emplace_back(pool.add(/* ... */));
-tasks.emplace_back(pool.add(/* ... */));
 
-if (pool.waitAll(tasks, TIMEOUT))
+if (pool.wait_all_for(tasks, std::chrono::seconds(1)))
     puts("All tasks are done");
 else
     puts("Not all tasks are done");
@@ -122,7 +123,7 @@ and returns a `std::thread` that executes it.
 #include <pthread.h>
 #include <cstdio>
 ...
-using namespace WorkerPool;
+using namespace worker_pool;
 
 Pool pool(4, 4,
   [&](const std::function<void()>& callback) {
@@ -148,7 +149,7 @@ You assign a task's name when you create it,
 and you can retrieve the task's name with `Task::getName()`.
 Outside of this, the library does not use a task's name for any purpose.
 ```c++
-using namespace WorkerPool;
+using namespace worker_pool;
 
 Pool pool(2);
 auto task = pool.add("apples", []{});

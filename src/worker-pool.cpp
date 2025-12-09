@@ -1,11 +1,11 @@
-#include "WorkerPool.h"
+#include "../include/worker-pool/worker-pool.h"
 
 #ifdef WORKER_POOL_LOGGING
 #include <cstdarg>
 #include <cstdio>
 #endif
 
-namespace WorkerPool {
+namespace worker_pool {
     void log(const char* format...) {
 #ifdef WORKER_POOL_LOGGING
         va_list args;
@@ -14,7 +14,7 @@ namespace WorkerPool {
         buf[sizeof(buf) - 1] = '\0';
         const auto timeNanos = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-        const auto threadKind = WorkerPool::threadOwningPool != nullptr ? "pool" : "non-pool";
+        const auto threadKind = worker_pool::threadOwningPool != nullptr ? "pool" : "non-pool";
         const auto prefixLength = snprintf(buf, sizeof(buf), "%ld %s thread %lu: ",
                                            timeNanos, threadKind, pthread_self());
         vsnprintf(buf + prefixLength, sizeof(buf) - prefixLength, format, args);
@@ -23,7 +23,7 @@ namespace WorkerPool {
 #endif
     }
 
-    const char* Pool::WorkItem::workItemStateToString(State state) {
+    const char* pool::WorkItem::workItemStateToString(State state) {
         switch (state) {
             case State::Unstarted:
                 return "Unstarted";
@@ -37,7 +37,7 @@ namespace WorkerPool {
     }
 
 
-    Pool::~Pool() {
+    pool::~pool() {
         shutDown();
         std::lock_guard lock(threadsMutex);
         for (auto& thread: threads) {
@@ -45,7 +45,7 @@ namespace WorkerPool {
         }
     }
 
-    void Pool::shutDown() {
+    void pool::shutDown() {
         {
             std::lock_guard lock(unstartedMutex);
             stopping.store(true, std::memory_order::release);
@@ -53,17 +53,17 @@ namespace WorkerPool {
         cv.notify_all();
     }
 
-    void Pool::throwIfStopped() const {
+    void pool::throwIfStopped() const {
         if (stopping.load(std::memory_order::acquire))
             throw std::runtime_error("Cannot add to stopped thread WorkerPool");
     }
 
-    void Pool::unsafeAddThread() {
+    void pool::unsafeAddThread() {
         readyThreads.fetch_add(1);
         threads.emplace_back(threadFactory([this] { work(); }));
     }
 
-    Pool::WorkItem::WorkItem(Pool& owner,
+    pool::WorkItem::WorkItem(pool& owner,
                              size_t id,
                              std::packaged_task<std::any()> task,
                              std::string name)
@@ -75,15 +75,15 @@ namespace WorkerPool {
         state.store(State::Unstarted, std::memory_order::release);
     }
 
-    void Pool::WorkItem::enableDeletion(TIterator self) {
+    void pool::WorkItem::enableDeletion(TIterator self) {
         this->thisIterator = self;
     }
 
-    bool Pool::WorkItem::operator==(const WorkItem& other) const {
+    bool pool::WorkItem::operator==(const WorkItem& other) const {
         return id == other.id && &owningPool == &other.owningPool;
     }
 
-    bool Pool::WorkItem::trySetExecuting() {
+    bool pool::WorkItem::trySetExecuting() {
         State oldState = State::Unstarted;
         if (state.compare_exchange_strong(oldState, State::Executing)) {
             log("trySetExecuting succeeded for task %s", getName().c_str());
@@ -93,26 +93,26 @@ namespace WorkerPool {
         return false;
     }
 
-    void Pool::WorkItem::execute() {
+    void pool::WorkItem::execute() {
         log("Beginning task %s", getName().c_str());
         task();
         state.store(State::Done, std::memory_order::release);
         log("Finished task %s", getName().c_str());
     }
 
-    Pool& Pool::WorkItem::getOwningPool() const {
+    pool& pool::WorkItem::getOwningPool() const {
         return owningPool;
     }
 
-    std::any Pool::WorkItem::getResult() {
+    std::any pool::WorkItem::getResult() {
         return future.get();
     }
 
-    std::string Pool::WorkItem::getName() const {
+    std::string pool::WorkItem::getName() const {
         return name;
     }
 
-    void Pool::maybeAddThreadBeforeWait(const WorkItem& workItem) {
+    void pool::maybeAddThreadBeforeWait(const WorkItem& workItem) {
         if (&workItem.owningPool == this && threadOwningPool == this) {
             // We are about to block a pool thread, so consider creating an extra thread.
             if (readyThreads.load(std::memory_order::acquire) < targetParallelism + maxWaiterThreads) {
@@ -127,7 +127,7 @@ namespace WorkerPool {
         }
     }
 
-    void Pool::wait(WorkItem& workItem) {
+    void pool::wait(WorkItem& workItem) {
         // retry loop
         while (true) {
             auto state = workItem.state.load(std::memory_order::acquire);
@@ -171,15 +171,15 @@ namespace WorkerPool {
         }
     }
 
-    bool Pool::threadIsExtra() const {
+    bool pool::threadIsExtra() const {
         return readyThreads.load(std::memory_order::acquire) > targetParallelism;
     }
 
-    bool Pool::threadShouldExit() const {
+    bool pool::threadShouldExit() const {
         return stopping.load(std::memory_order::acquire) || threadIsExtra();
     }
 
-    void Pool::work() {
+    void pool::work() {
         threadOwningPool = this;
         while (true) {
             std::unique_lock unstartedLock(unstartedMutex);

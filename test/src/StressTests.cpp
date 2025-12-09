@@ -1,25 +1,25 @@
 #include "TestUtils.h"
-#include "WorkerPool.h"
+#include "worker-pool/worker-pool.h"
 
-using namespace  WorkerPool;
+using namespace  worker_pool;
 
 TEST(StressTests, ManyTasks) {
-    Pool pool(2);
+    pool pool(2);
     const size_t TASK_COUNT = 100000;
-    std::vector<Task<size_t>> futures;
+    std::vector<task<size_t>> futures;
     futures.reserve(TASK_COUNT);
     for (size_t i = 1; i <= TASK_COUNT; ++i) {
         futures.emplace_back(pool.add([=] { return i; }));
     }
     size_t sum = 0;
     for (size_t i = 0; i < TASK_COUNT; ++i)
-        sum += futures[i].getResult();
+        sum += futures[i].get();
 
     EXPECT_EQ(TASK_COUNT * (TASK_COUNT + 1) / 2, sum);
 }
 
 TEST(StressTests, ManyWaits) {
-    Pool pool(4);
+    pool pool(4);
     const auto startTime = std::chrono::steady_clock::now();
     pool.add([&] {
         auto sub1 = pool.add([] { sleepMs(1000); });
