@@ -4,7 +4,7 @@
 using namespace worker_pool;
 
 TEST(ResultAccess, Multiple) {
-    Pool pool(2);
+    pool pool(2);
     constexpr auto VALUE = 123;
     auto intFuture = pool.add([] { return VALUE; });
     intFuture.wait();
@@ -14,7 +14,7 @@ TEST(ResultAccess, Multiple) {
 }
 
 TEST(ResultAccess, GetResultBeforeWait) {
-    Pool pool(2);
+    pool pool(2);
     constexpr auto VALUE = 123;
     auto intFuture = pool.add([] { return VALUE; });
     EXPECT_EQ(VALUE, intFuture.get());
@@ -22,7 +22,7 @@ TEST(ResultAccess, GetResultBeforeWait) {
 }
 
 TEST(ResultAccess, MultipleGetResultBeforeWait) {
-    Pool pool(2);
+    pool pool(2);
     constexpr auto VALUE = 123;
     auto intFuture = pool.add([] { return VALUE; });
     EXPECT_EQ(VALUE, intFuture.get());

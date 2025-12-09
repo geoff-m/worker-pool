@@ -7,7 +7,7 @@ TEST(ThreadFactory, Basic) {
     std::atomic<int> threadsCreated = 0;
     constexpr auto EXPECTED_THREADS_CREATED = 9;
     {
-        Pool pool(EXPECTED_THREADS_CREATED, 0,
+        pool pool(EXPECTED_THREADS_CREATED, 0,
                         [&threadsCreated](const std::function<void()>& callback) {
                             return std::thread([&threadsCreated, callback]() {
                                 ++threadsCreated;

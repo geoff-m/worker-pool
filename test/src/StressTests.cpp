@@ -4,9 +4,9 @@
 using namespace  worker_pool;
 
 TEST(StressTests, ManyTasks) {
-    Pool pool(2);
+    pool pool(2);
     const size_t TASK_COUNT = 100000;
-    std::vector<Task<size_t>> futures;
+    std::vector<task<size_t>> futures;
     futures.reserve(TASK_COUNT);
     for (size_t i = 1; i <= TASK_COUNT; ++i) {
         futures.emplace_back(pool.add([=] { return i; }));
@@ -19,7 +19,7 @@ TEST(StressTests, ManyTasks) {
 }
 
 TEST(StressTests, ManyWaits) {
-    Pool pool(4);
+    pool pool(4);
     const auto startTime = std::chrono::steady_clock::now();
     pool.add([&] {
         auto sub1 = pool.add([] { sleepMs(1000); });

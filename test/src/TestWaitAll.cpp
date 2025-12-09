@@ -10,19 +10,19 @@
 using namespace worker_pool;
 
 TEST(WaitAll, Empty) {
-    Pool pool(2);
-    std::vector<Task<void>> t;
+    pool pool(2);
+    std::vector<task<void>> t;
     pool.wait_all(t);
 }
 
 TEST(WaitAll, Smart) {
-    Pool pool(2, 0, false);
+    pool pool(2, 0, false);
     const auto startTime = std::chrono::steady_clock::now();
     std::mutex mutex;
     std::condition_variable cv;
     bool task1Started = false;
     pool.add("outer", [&] {
-        std::vector<Task<void>> subtasks;
+        std::vector<task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add("sub1", [&] {
             {
                 std::lock_guard lock(mutex);
@@ -48,10 +48,10 @@ TEST(WaitAll, Smart) {
 }
 
 TEST(WaitAll, Iterators) {
-    Pool pool(1, 0, false);
+    pool pool(1, 0, false);
     std::atomic<int> done = 0;
     pool.add([&] {
-        std::vector<Task<void>> subtasks;
+        std::vector<task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add([&] { ++done; }));
         auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
         pool.wait_all(subtasks.begin(), subtasks.end());
@@ -60,10 +60,10 @@ TEST(WaitAll, Iterators) {
 }
 
 TEST(WaitAll, Vector) {
-    Pool pool(1, 0, false);
+    pool pool(1, 0, false);
     std::atomic<int> done = 0;
     pool.add([&] {
-        std::vector<Task<void>> subtasks;
+        std::vector<task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add([&] { ++done; }));
         auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
         pool.wait_all(subtasks);
@@ -72,10 +72,10 @@ TEST(WaitAll, Vector) {
 }
 
 TEST(WaitAll, Array) {
-    Pool pool(1, 0, false);
+    pool pool(1, 0, false);
     std::atomic<int> done = 0;
     pool.add([&] {
-        std::vector<Task<void>> subtasks;
+        std::vector<task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add([&] { ++done; }));
         auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
         pool.wait_all(subtasks.data(), subtasks.size());
@@ -84,11 +84,11 @@ TEST(WaitAll, Array) {
 }
 
 TEST(WaitAll, Iterable) {
-    Pool pool(1, 0, false);
+    pool pool(1, 0, false);
     std::atomic<int> done = 0;
     pool.add([&] {
         // Use std::list because it doesn't have operator[].
-        std::list<Task<void>> subtasks;
+        std::list<task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add([&] { ++done; }));
         auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
         pool.wait_all(subtasks);
@@ -97,11 +97,11 @@ TEST(WaitAll, Iterable) {
 }
 
 TEST(WaitAll, FirstIsSlow) {
-    Pool pool(4, 0, false);
+    pool pool(4, 0, false);
     std::atomic<int> done = 0;
     const auto startTime = std::chrono::steady_clock::now();
     pool.add([&] {
-        std::list<Task<void>> subtasks;
+        std::list<task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add([&] {
             sleepMs(1000);
             ++done;
@@ -117,11 +117,11 @@ TEST(WaitAll, FirstIsSlow) {
 }
 
 TEST(WaitAll, LastIsSlow) {
-    Pool pool(4, 0, false);
+    pool pool(4, 0, false);
     std::atomic<int> done = 0;
     const auto startTime = std::chrono::steady_clock::now();
     pool.add([&] {
-        std::list<Task<void>> subtasks;
+        std::list<task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add([&] { ++done; }));
         auto sub2 = subtasks.emplace_back(pool.add([&] {
             sleepMs(1000);
@@ -137,14 +137,14 @@ TEST(WaitAll, LastIsSlow) {
 }
 
 TEST(WaitAll, OneSlower) {
-    Pool pool(4, 0, false);
+    pool pool(4, 0, false);
     std::atomic<int> done = 0;
     std::mutex mutex;
     std::condition_variable cv;
     std::atomic<int> tasksStarted = 0;
     const auto startTime = std::chrono::steady_clock::now();
     auto outer = pool.add("outer", [&] {
-        std::list<Task<void>> subtasks;
+        std::list<task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add("sub1", [&] {
             {
                 std::lock_guard lock(mutex);

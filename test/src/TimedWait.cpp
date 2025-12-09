@@ -10,7 +10,7 @@ template<typename Rep, typename Period>
 }
 
 TEST(TimedWait, VoidTimeoutFor) {
-    Pool pool(1);
+    pool pool(1);
     const auto testStart = steady_clock::now();
     auto task = pool.add([] { sleepMs(1000); });
     EXPECT_FALSE(task.wait_for(milliseconds(500)));
@@ -20,7 +20,7 @@ TEST(TimedWait, VoidTimeoutFor) {
 }
 
 TEST(TimedWait, VoidTimeoutUntil) {
-    Pool pool(1);
+    pool pool(1);
     const auto testStart = steady_clock::now();
     auto task = pool.add([] { sleepMs(1000); });
     EXPECT_FALSE(task.wait_until(nowPlus(milliseconds(500))));
@@ -30,7 +30,7 @@ TEST(TimedWait, VoidTimeoutUntil) {
 }
 
 TEST(TimedWait, VoidNoTimeout) {
-    Pool pool(1);
+    pool pool(1);
     const auto testStart = steady_clock::now();
     auto task = pool.add([] { sleepMs(1000); });
     EXPECT_TRUE(task.wait_for(seconds(10)));
@@ -40,7 +40,7 @@ TEST(TimedWait, VoidNoTimeout) {
 }
 
 TEST(TimedWait, IntTimeoutFor) {
-    Pool pool(1);
+    pool pool(1);
     const auto testStart = steady_clock::now();
     auto task = pool.add([] { sleepMs(1000); return 1;});
     EXPECT_FALSE(task.wait_for(milliseconds(500)));
@@ -50,7 +50,7 @@ TEST(TimedWait, IntTimeoutFor) {
 }
 
 TEST(TimedWait, IntTimeoutUntil) {
-    Pool pool(1);
+    pool pool(1);
     const auto testStart = steady_clock::now();
     auto task = pool.add([] { sleepMs(1000); return 1;});
     EXPECT_FALSE(task.wait_until(nowPlus(milliseconds(500))));
@@ -61,7 +61,7 @@ TEST(TimedWait, IntTimeoutUntil) {
 
 
 TEST(TimedWait, IntNoTimeout) {
-    Pool pool(1);
+    pool pool(1);
     const auto testStart = steady_clock::now();
     auto task = pool.add([] { sleepMs(1000); return 1; });
     EXPECT_TRUE(task.wait_for(seconds(10)));
@@ -71,9 +71,9 @@ TEST(TimedWait, IntNoTimeout) {
 }
 
 TEST(TimedWait, WaitAllTimeoutFor) {
-    Pool pool(1);
+    pool pool(1);
     const auto testStart = steady_clock::now();
-    std::vector<Task<void>> tasks;
+    std::vector<task<void>> tasks;
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
@@ -84,9 +84,9 @@ TEST(TimedWait, WaitAllTimeoutFor) {
 }
 
 TEST(TimedWait, WaitAllTimeoutUntil) {
-    Pool pool(1);
+    pool pool(1);
     const auto testStart = steady_clock::now();
-    std::vector<Task<void>> tasks;
+    std::vector<task<void>> tasks;
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
@@ -97,9 +97,9 @@ TEST(TimedWait, WaitAllTimeoutUntil) {
 }
 
 TEST(TimedWait, WaitAllNoTimeout) {
-    Pool pool(1);
+    pool pool(1);
     const auto testStart = steady_clock::now();
-    std::vector<Task<void>> tasks;
+    std::vector<task<void>> tasks;
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
