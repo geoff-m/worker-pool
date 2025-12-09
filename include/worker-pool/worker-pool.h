@@ -98,10 +98,10 @@ namespace worker_pool {
 
     public:
         /**
-         * Creates a new WorkerPool.
+         * Creates a new pool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
          * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
-         * @param threadFactory A callable like std::thread::thread(callback) which the WorkerPool will use
+         * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
          * to create threads when needed.
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
@@ -122,7 +122,7 @@ namespace worker_pool {
         }
 
         /**
-         * Creates a new WorkerPool.
+         * Creates a new pool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
          * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
@@ -134,23 +134,23 @@ namespace worker_pool {
         }
 
         /**
-         * Creates a new WorkerPool.
+         * Creates a new pool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
         */
         explicit pool(unsigned int targetParallelism) : pool(targetParallelism, targetParallelism) {
         }
 
         /**
-         * Destroys the WorkerPool.
-         * Shuts down the WorkerPool (see WorkerPool::shutDown()),
+         * Destroys the pool.
+         * Shuts down the pool (see pool::shutDown()),
          * then waits for all work previously added to the pool to finish.
          */
         ~pool();
 
         /**
-         * Shuts down the WorkerPool.
+         * Shuts down the pool.
          * Tasks already running or queued in the pool will still run normally.
-         * Attempting to add tasks to a shut down WorkerPool will throw an exception.
+         * Attempting to add tasks to a shut down pool will throw an exception.
          * A shut down pool cannot be restarted.
          */
         void shutDown();
@@ -172,7 +172,7 @@ namespace worker_pool {
          * @tparam TArgs Types of the arguments to the callback.
          * @param callback The function that will perform the work.
          * @param args The arguments, if any, to the callback function.
-         * @return A Task representing the work associated with this call.
+         * @return A task representing the work associated with this call.
          */
         template<typename TCallback, typename... TArgs>
         auto add(TCallback callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))>;
@@ -184,7 +184,7 @@ namespace worker_pool {
          * @param name Name of the task
          * @param callback The function that will perform the work.
          * @param args The arguments, if any, to the callback function.
-         * @return A Task representing the work associated with this call.
+         * @return A task representing the work associated with this call.
          */
         template<typename TCallback, typename... TArgs>
         auto add(std::string name, TCallback callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))>;
@@ -195,7 +195,7 @@ namespace worker_pool {
          * @tparam TArgs Types of the arguments to the callback.
          * @param callback The function that will perform the work.
          * @param args The arguments, if any, to the callback function.
-         * @return A Task representing the work associated with this call.
+         * @return A task representing the work associated with this call.
          */
         template<typename TCallback, typename... TArgs>
             requires invocable_returns_void<TCallback, TArgs...>
@@ -208,7 +208,7 @@ namespace worker_pool {
          * @param name Name of the task
          * @param callback The function that will perform the work.
          * @param args The arguments, if any, to the callback function.
-         * @return A Task representing the work associated with this call.
+         * @return A task representing the work associated with this call.
          */
         template<typename TCallback, typename... TArgs>
             requires invocable_returns_void<TCallback, TArgs...>
@@ -299,7 +299,7 @@ namespace worker_pool {
         }
 
         /**
-         * Blocks until all of the given tasks are finished.
+         * Blocks until all of the given tasks are finished or a timeout occurs.
          * @tparam TResult Type of the result of each task.
          * @param tasks Array of tasks.
          * @param count Number of tasks.
@@ -313,7 +313,7 @@ namespace worker_pool {
         }
 
         /**
-         * Blocks until all of the given tasks are finished.
+         * Blocks until all of the given tasks are finished or a timeout occurs.
          * @tparam TResult Type of the result of each task.
          * @param tasks Array of tasks.
          * @param count Number of tasks.
@@ -336,7 +336,7 @@ namespace worker_pool {
         void wait_all(TaskIterator begin, TaskIterator end);
 
         /**
-         * Blocks until all of the given tasks are finished.
+         * Blocks until all of the given tasks are finished or a timeout occurs.
          * @tparam TaskIterator Type of iterator for task to be awaited.
          * @param begin Iterator pointing to the first task to be awaited.
          * @param end Iterator pointing one past the last task to be awaited.
@@ -350,7 +350,7 @@ namespace worker_pool {
         }
 
         /**
-         * Blocks until all of the given tasks are finished.
+         * Blocks until all of the given tasks are finished or a timeout occurs.
          * @tparam TaskIterator Type of iterator for task to be awaited.
          * @param begin Iterator pointing to the first task to be awaited.
          * @param end Iterator pointing one past the last task to be awaited.
@@ -374,7 +374,7 @@ namespace worker_pool {
         }
 
         /**
-         * Blocks until all of the given tasks are finished.
+         * Blocks until all of the given tasks are finished or a timeout occurs.
          * @tparam IterableTasks Type of iterable thing for tasks to be awaited.
          * @param tasks Iterable thing for tasks to be awaited.
          * @param timeout_duration The maximum amount of time to wait.
@@ -386,7 +386,7 @@ namespace worker_pool {
         }
 
         /**
-         * Blocks until all of the given tasks are finished.
+         * Blocks until all of the given tasks are finished or a timeout occurs.
          * @tparam IterableTasks Type of iterable thing for tasks to be awaited.
          * @param tasks Iterable thing for tasks to be awaited.
          * @param timeout_time The point at which to stop waiting.
@@ -400,7 +400,7 @@ namespace worker_pool {
 
     /**
       * Represents a task that has been submitted to the pool.
-      * @tparam TResult The type of the result of this Task.
+      * @tparam TResult The type of the result of this task.
       */
     template<typename TResult>
     class task {
@@ -413,7 +413,7 @@ namespace worker_pool {
 
     public:
         /**
-         * Blocks until this Task is complete.
+         * Blocks until this task is complete.
          * @return The result returned from this task.
          */
         void wait() {
@@ -421,7 +421,7 @@ namespace worker_pool {
         }
 
         /**
-         * Blocks until this Task is complete, or until the given timeout elapses.
+         * Blocks until this task is complete, or until the given timeout elapses.
          * @param timeout_duration The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
@@ -431,7 +431,7 @@ namespace worker_pool {
         }
 
         /**
-         * Blocks until this Task is complete, or until the given timeout is reached.
+         * Blocks until this task is complete, or until the given timeout is reached.
          * @param timeout_time The point at which to stop waiting.
          * @return False if and only if timeout occurred.
          */
@@ -468,14 +468,14 @@ namespace worker_pool {
 
     public:
         /**
-         * Blocks until this Task is complete.
+         * Blocks until this task is complete.
          */
         void wait() {
             wi->getOwningPool().wait(*wi);
         }
 
         /**
-         * Blocks until this Task is complete, or until the given timeout elapses.
+         * Blocks until this task is complete or a timeout occurs.
          * @param timeout_duration The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
@@ -485,7 +485,7 @@ namespace worker_pool {
         }
 
         /**
-         * Blocks until this Task is complete, or until the given timeout is reached.
+         * Blocks until this task is complete or a timeout occurs.
          * @param timeout_time The point at which to stop waiting.
          * @return False if and only if timeout occurred.
          */
