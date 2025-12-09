@@ -340,13 +340,13 @@ namespace worker_pool {
          * @tparam TaskIterator Type of iterator for task to be awaited.
          * @param begin Iterator pointing to the first task to be awaited.
          * @param end Iterator pointing one past the last task to be awaited.
-         * @param timeout_time The maximum amount of time to wait.
+         * @param timeout_duration The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
         template<typename TaskIterator, class Rep, class Period>
         bool wait_all_for(TaskIterator begin, TaskIterator end,
-                          const std::chrono::duration<Rep, Period>& timeout_time) {
-            return naive_wait_all_for(begin, end, timeout_time);
+                          const std::chrono::duration<Rep, Period>& timeout_duration) {
+            return naive_wait_all_for(begin, end, timeout_duration);
         }
 
         /**
