@@ -1,5 +1,5 @@
 #include "TestUtils.h"
-#include "../../include/worker-pool/worker-pool.h"
+#include "worker-pool/worker-pool.h"
 
 using namespace worker_pool;
 using namespace std::chrono;

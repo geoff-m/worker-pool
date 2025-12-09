@@ -1,5 +1,5 @@
 #include "TestUtils.h"
-#include "../../include/worker-pool/worker-pool.h"
+#include "worker-pool/worker-pool.h"
 #include <chrono>
 #include <iostream>
 

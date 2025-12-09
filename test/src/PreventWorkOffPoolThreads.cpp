@@ -1,6 +1,5 @@
 #include "TestUtils.h"
-#include "gtest/gtest.h"
-#include "../../include/worker-pool/worker-pool.h"
+#include "worker-pool/worker-pool.h"
 
 using namespace  worker_pool;
 
