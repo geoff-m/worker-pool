@@ -87,9 +87,13 @@ Compared with sequentially calling `task::wait` on each of a set of tasks,
 `pool::wait_all` is more convenient, and in some scenarios, also more performant.
 
 ### Timed waiting
-In addition to `wait` and `wait_all` have counterparts that can time out:
-`wait_for`, `wait_until`, `wait_all_for`, `wait_all_until`.
-These return a `bool`:
+`wait` and `wait_all` have counterparts that can time out:
+ - `wait_for`
+ - `wait_until`
+ - `wait_all_for`
+ - `wait_all_until`
+   
+All of these return a `bool`:
  - `true` indicates the awaited operation(s) finished
  - `false` indicates the timeout elapsed
 ```c++
