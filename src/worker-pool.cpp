@@ -1,11 +1,11 @@
-#include "WorkerPool.h"
+#include "../include/worker-pool/worker-pool.h"
 
 #ifdef WORKER_POOL_LOGGING
 #include <cstdarg>
 #include <cstdio>
 #endif
 
-namespace WorkerPool {
+namespace worker_pool {
     void log(const char* format...) {
 #ifdef WORKER_POOL_LOGGING
         va_list args;
@@ -14,7 +14,7 @@ namespace WorkerPool {
         buf[sizeof(buf) - 1] = '\0';
         const auto timeNanos = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-        const auto threadKind = WorkerPool::threadOwningPool != nullptr ? "pool" : "non-pool";
+        const auto threadKind = worker_pool::threadOwningPool != nullptr ? "pool" : "non-pool";
         const auto prefixLength = snprintf(buf, sizeof(buf), "%ld %s thread %lu: ",
                                            timeNanos, threadKind, pthread_self());
         vsnprintf(buf + prefixLength, sizeof(buf) - prefixLength, format, args);

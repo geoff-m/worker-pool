@@ -1,7 +1,7 @@
 #include "TestUtils.h"
-#include "WorkerPool.h"
+#include "../../include/worker-pool/worker-pool.h"
 
-using namespace  WorkerPool;
+using namespace  worker_pool;
 
 TEST(StressTests, ManyTasks) {
     Pool pool(2);
@@ -13,7 +13,7 @@ TEST(StressTests, ManyTasks) {
     }
     size_t sum = 0;
     for (size_t i = 0; i < TASK_COUNT; ++i)
-        sum += futures[i].getResult();
+        sum += futures[i].get();
 
     EXPECT_EQ(TASK_COUNT * (TASK_COUNT + 1) / 2, sum);
 }

@@ -1,9 +1,9 @@
 #include "TestUtils.h"
-#include "WorkerPool.h"
+#include "../../include/worker-pool/worker-pool.h"
 #include <chrono>
 #include <iostream>
 
-using namespace WorkerPool;
+using namespace worker_pool;
 
 TEST(BasicTests, Create0) {
     EXPECT_ANY_THROW(Pool pool(0););
@@ -22,7 +22,7 @@ TEST(BasicTests, IntLambda) {
     constexpr auto VALUE = 123;
     auto intFuture = pool.add([] { return VALUE; });
     intFuture.wait();
-    EXPECT_EQ(VALUE, intFuture.getResult());
+    EXPECT_EQ(VALUE, intFuture.get());
 }
 
 TEST(BasicTests, StringLambda) {
@@ -30,7 +30,7 @@ TEST(BasicTests, StringLambda) {
     constexpr auto VALUE = "hello";
     auto stringFuture = pool.add([] { return VALUE; });
     stringFuture.wait();
-    EXPECT_EQ(VALUE, stringFuture.getResult());
+    EXPECT_EQ(VALUE, stringFuture.get());
 }
 
 int add(int x, int y) {
@@ -43,7 +43,7 @@ TEST(BasicTests, BinaryFunction) {
     constexpr auto Y = 3;
     auto binaryFuture = pool.add(add, X, Y);
     binaryFuture.wait();
-    EXPECT_EQ(X + Y, binaryFuture.getResult());
+    EXPECT_EQ(X + Y, binaryFuture.get());
 }
 
 TEST(BasicTests, BinaryLambda) {
@@ -53,7 +53,7 @@ TEST(BasicTests, BinaryLambda) {
     auto binaryLambdaFuture = pool.add([](int x, int y) { return x + y; },
                                        X, Y);
     binaryLambdaFuture.wait();
-    EXPECT_EQ(X + Y, binaryLambdaFuture.getResult());
+    EXPECT_EQ(X + Y, binaryLambdaFuture.get());
 }
 
 TEST(BasicTests, VoidLambda) {
@@ -77,7 +77,7 @@ TEST(BasicTests, BinaryVoidLambda) {
     EXPECT_EQ(X + Y, binaryVoidSideEffect);
 }
 
-void increment(int* value) {
+void increment(int *value) {
     *value += 1;
 }
 
@@ -104,7 +104,7 @@ TEST(StressTests, Parallelism) {
     const unsigned int threadCount = std::max(1u, std::thread::hardware_concurrency());
     std::cout << "Using threadCount=" << threadCount << std::endl;
     Pool pool(threadCount);
-    std::vector<Task<void>> futures;
+    std::vector<Task<void> > futures;
     constexpr auto WAIT_MS = 1000;
     for (size_t i = 1; i <= threadCount; ++i) {
         futures.emplace_back(pool.add([=] { sleepMs(WAIT_MS); }));

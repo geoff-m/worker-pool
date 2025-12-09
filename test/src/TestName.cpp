@@ -1,7 +1,7 @@
 #include "TestUtils.h"
-#include "WorkerPool.h"
+#include "../../include/worker-pool/worker-pool.h"
 
-using namespace WorkerPool;
+using namespace worker_pool;
 
 TEST(Name, NoNameVoid) {
     Pool p(1);

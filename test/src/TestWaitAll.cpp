@@ -1,5 +1,5 @@
 #include "TestUtils.h"
-#include "WorkerPool.h"
+#include "../../include/worker-pool/worker-pool.h"
 #include <vector>
 #include <list>
 #include <atomic>
@@ -7,12 +7,12 @@
 #include <mutex>
 #include <condition_variable>
 
-using namespace WorkerPool;
+using namespace worker_pool;
 
 TEST(WaitAll, Empty) {
     Pool pool(2);
     std::vector<Task<void>> t;
-    pool.waitAll(t);
+    pool.wait_all(t);
 }
 
 TEST(WaitAll, Smart) {
@@ -21,9 +21,9 @@ TEST(WaitAll, Smart) {
     std::mutex mutex;
     std::condition_variable cv;
     bool task1Started = false;
-    pool.add([&] {
+    pool.add("outer", [&] {
         std::vector<Task<void>> subtasks;
-        auto sub1 = subtasks.emplace_back(pool.add([&] {
+        auto sub1 = subtasks.emplace_back(pool.add("sub1", [&] {
             {
                 std::lock_guard lock(mutex);
                 task1Started = true;
@@ -37,10 +37,10 @@ TEST(WaitAll, Smart) {
             cv.wait(lock, [&] { return task1Started; });
         }
 
-        auto sub2 = subtasks.emplace_back(pool.add([] { sleepMs(1000); }));
+        auto sub2 = subtasks.emplace_back(pool.add("sub2", [] { sleepMs(1000); }));
 
         // This should do sub2 first instead of naively blocking on sub1.
-        pool.waitAll(subtasks);
+        pool.wait_all(subtasks);
     }).wait();
     const auto endTime = std::chrono::steady_clock::now();
     const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
@@ -54,7 +54,7 @@ TEST(WaitAll, Iterators) {
         std::vector<Task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add([&] { ++done; }));
         auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
-        pool.waitAll(subtasks.begin(), subtasks.end());
+        pool.wait_all(subtasks.begin(), subtasks.end());
     }).wait();
     EXPECT_EQ(2, done);
 }
@@ -66,7 +66,7 @@ TEST(WaitAll, Vector) {
         std::vector<Task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add([&] { ++done; }));
         auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
-        pool.waitAll(subtasks);
+        pool.wait_all(subtasks);
     }).wait();
     EXPECT_EQ(2, done);
 }
@@ -78,7 +78,7 @@ TEST(WaitAll, Array) {
         std::vector<Task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add([&] { ++done; }));
         auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
-        pool.waitAll(subtasks.data(), subtasks.size());
+        pool.wait_all(subtasks.data(), subtasks.size());
     }).wait();
     EXPECT_EQ(2, done);
 }
@@ -91,7 +91,7 @@ TEST(WaitAll, Iterable) {
         std::list<Task<void>> subtasks;
         auto sub1 = subtasks.emplace_back(pool.add([&] { ++done; }));
         auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
-        pool.waitAll(subtasks);
+        pool.wait_all(subtasks);
     }).wait();
     EXPECT_EQ(2, done);
 }
@@ -107,7 +107,7 @@ TEST(WaitAll, FirstIsSlow) {
             ++done;
         }));
         auto sub2 = subtasks.emplace_back(pool.add([&] { ++done; }));
-        pool.waitAll(subtasks);
+        pool.wait_all(subtasks);
     }).wait();
     const auto endTime = std::chrono::steady_clock::now();
     const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
@@ -127,7 +127,7 @@ TEST(WaitAll, LastIsSlow) {
             sleepMs(1000);
             ++done;
         }));
-        pool.waitAll(subtasks);
+        pool.wait_all(subtasks);
     }).wait();
     const auto endTime = std::chrono::steady_clock::now();
     const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
@@ -167,7 +167,7 @@ TEST(WaitAll, OneSlower) {
             std::unique_lock lock(mutex);
             cv.wait(lock, [&] { return tasksStarted == 2; });
         }
-        pool.waitAll(subtasks);
+        pool.wait_all(subtasks);
     });
     outer.wait();
     const auto endTime = std::chrono::steady_clock::now();

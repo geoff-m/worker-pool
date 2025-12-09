@@ -27,7 +27,7 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                      } -> std::same_as<void>;
                                  };
 
-namespace WorkerPool {
+namespace worker_pool {
     void log([[maybe_unused]] const char* format...);
 
     class Pool;
@@ -228,7 +228,12 @@ namespace WorkerPool {
         void maybeAddThreadBeforeWait(const WorkItem& workItem);
 
         template<class Rep, class Period>
-        bool wait(WorkItem& workItem, const std::chrono::duration<Rep, Period>& timeout) {
+        bool wait_for(WorkItem& workItem, const std::chrono::duration<Rep, Period>& timeout_duration) {
+            return wait_until(workItem, std::chrono::steady_clock::now() + timeout_duration);
+        }
+
+        template<class Clock, class Duration>
+        bool wait_until(WorkItem& workItem, const std::chrono::time_point<Clock, Duration>& timeout_time) {
             auto state = workItem.state.load(std::memory_order::acquire);
             log("Timed wait for task %s (task is %s)",
                 workItem.getName().c_str(), WorkItem::workItemStateToString(state));
@@ -239,7 +244,7 @@ namespace WorkerPool {
                     // Waiting for an item that's currently being executed.
                     maybeAddThreadBeforeWait(workItem);
                     // Block this thread.
-                    const auto status = workItem.future.wait_for(timeout);
+                    const auto status = workItem.future.wait_until(timeout_time);
 
                     log("Done with timed wait for %s (task is %s)",
                         workItem.getName().c_str(),
@@ -250,28 +255,33 @@ namespace WorkerPool {
         }
 
         template<typename TaskIterator>
-        static void naiveWaitAll(TaskIterator begin, TaskIterator end) {
+        static void naive_wait_all(TaskIterator begin, TaskIterator end) {
             if (begin == end)
                 return;
-            log("naiveWaitAll(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
+            log("naive_wait_all(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
             for (auto it = begin; it != end; ++it) {
                 it->wait();
             }
         }
 
         template<typename TaskIterator, class Rep, class Period>
-        static bool naiveWaitAll(TaskIterator begin, TaskIterator end, std::chrono::duration<Rep, Period> timeout) {
+        static bool naive_wait_all_for(TaskIterator begin, TaskIterator end,
+                                       const std::chrono::duration<Rep, Period>& timeout_duration) {
             if (begin == end)
                 return true;
-            log("naiveWaitAll(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
-            const auto expiryTime = std::chrono::steady_clock::now() + timeout;
-            auto remainingTimeout = duration_cast<std::chrono::steady_clock::duration>(timeout);
+            log("naive_wait_all_for(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
+            return naive_wait_all_until(begin, end, std::chrono::steady_clock::now() + timeout_duration);
+        }
+
+        template<typename TaskIterator, class Clock, class Duration>
+        static bool naive_wait_all_until(TaskIterator begin, TaskIterator end,
+                                         const std::chrono::time_point<Clock, Duration>& timeout_time) {
+            if (begin == end)
+                return true;
+            log("naive_wait_all_until(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
             for (auto it = begin; it != end; ++it) {
-                if (remainingTimeout < std::chrono::milliseconds(0))
+                if (!it->wait_until(timeout_time))
                     return false;
-                if (!it->wait(remainingTimeout))
-                    return false;
-                remainingTimeout = expiryTime - std::chrono::steady_clock::now();
             }
             return true;
         }
@@ -284,8 +294,8 @@ namespace WorkerPool {
          * @param count Number of tasks.
          */
         template<typename TResult>
-        void waitAll(Task<TResult>* tasks, size_t count) {
-            waitAll(tasks, tasks + count);
+        void wait_all(Task<TResult>* tasks, size_t count) {
+            wait_all(tasks, tasks + count);
         }
 
         /**
@@ -293,12 +303,27 @@ namespace WorkerPool {
          * @tparam TResult Type of the result of each task.
          * @param tasks Array of tasks.
          * @param count Number of tasks.
-         * @param timeout The maximum amount of time to wait.
+         * @param timeout_duration The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
         template<typename TResult, class Rep, class Period>
-        bool waitAll(Task<TResult>* tasks, size_t count, std::chrono::duration<Rep, Period> timeout) {
-            return waitAll(tasks, tasks + count, timeout);
+        bool wait_all_for(Task<TResult>* tasks, size_t count,
+                          const std::chrono::duration<Rep, Period>& timeout_duration) {
+            return wait_all_for(tasks, tasks + count, timeout_duration);
+        }
+
+        /**
+         * Blocks until all of the given tasks are finished.
+         * @tparam TResult Type of the result of each task.
+         * @param tasks Array of tasks.
+         * @param count Number of tasks.
+         * @param timeout_time The point at which to stop waiting.
+         * @return False if and only if timeout occurred.
+         */
+        template<typename TResult, class Clock, class Duration>
+        bool wait_all_until(Task<TResult>* tasks, size_t count,
+                            const std::chrono::time_point<Clock, Duration>& timeout_time) {
+            return wait_all_until(tasks, tasks + count, timeout_time);
         }
 
         /**
@@ -308,19 +333,34 @@ namespace WorkerPool {
          * @param end Iterator pointing one past the last task to be awaited.
          */
         template<typename TaskIterator>
-        void waitAll(TaskIterator begin, TaskIterator end);
+        void wait_all(TaskIterator begin, TaskIterator end);
 
         /**
          * Blocks until all of the given tasks are finished.
          * @tparam TaskIterator Type of iterator for task to be awaited.
          * @param begin Iterator pointing to the first task to be awaited.
          * @param end Iterator pointing one past the last task to be awaited.
-         * @param timeout The maximum amount of time to wait.
+         * @param timeout_time The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
         template<typename TaskIterator, class Rep, class Period>
-        bool waitAll(TaskIterator begin, TaskIterator end, std::chrono::duration<Rep, Period> timeout) {
-            return naiveWaitAll(begin, end, timeout);
+        bool wait_all_for(TaskIterator begin, TaskIterator end,
+                          const std::chrono::duration<Rep, Period>& timeout_time) {
+            return naive_wait_all_for(begin, end, timeout_time);
+        }
+
+        /**
+         * Blocks until all of the given tasks are finished.
+         * @tparam TaskIterator Type of iterator for task to be awaited.
+         * @param begin Iterator pointing to the first task to be awaited.
+         * @param end Iterator pointing one past the last task to be awaited.
+         * @param timeout_time The point at which to stop waiting.
+         * @return False if and only if timeout occurred.
+         */
+        template<typename TaskIterator, class Clock, class Duration>
+        bool wait_all_for(TaskIterator begin, TaskIterator end,
+                          const std::chrono::time_point<Clock, Duration>& timeout_time) {
+            return naive_wait_all_until(begin, end, timeout_time);
         }
 
         /**
@@ -329,20 +369,32 @@ namespace WorkerPool {
          * @param tasks Iterable thing for tasks to be awaited.
          */
         template<typename IterableTasks>
-        void waitAll(IterableTasks tasks) {
-            waitAll(tasks.begin(), tasks.end());
+        void wait_all(IterableTasks tasks) {
+            wait_all(tasks.begin(), tasks.end());
         }
 
         /**
          * Blocks until all of the given tasks are finished.
          * @tparam IterableTasks Type of iterable thing for tasks to be awaited.
          * @param tasks Iterable thing for tasks to be awaited.
-         * @param timeout The maximum amount of time to wait.
+         * @param timeout_duration The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
         template<typename IterableTasks, class Rep, class Period>
-        bool waitAll(IterableTasks tasks, std::chrono::duration<Rep, Period> timeout) {
-            return waitAll(tasks.begin(), tasks.end(), timeout);
+        bool wait_all_for(IterableTasks tasks, const std::chrono::duration<Rep, Period>& timeout_duration) {
+            return naive_wait_all_for(tasks.begin(), tasks.end(), timeout_duration);
+        }
+
+        /**
+         * Blocks until all of the given tasks are finished.
+         * @tparam IterableTasks Type of iterable thing for tasks to be awaited.
+         * @param tasks Iterable thing for tasks to be awaited.
+         * @param timeout_time The point at which to stop waiting.
+         * @return False if and only if timeout occurred.
+         */
+        template<typename IterableTasks, class Clock, class Duration>
+        bool wait_all_until(IterableTasks tasks, const std::chrono::time_point<Clock, Duration>& timeout_time) {
+            return naive_wait_all_until(tasks.begin(), tasks.end(), timeout_time);
         }
     };
 
@@ -364,27 +416,37 @@ namespace WorkerPool {
          * Blocks until this Task is complete.
          * @return The result returned from this task.
          */
-        TResult wait() {
+        void wait() {
             wi->getOwningPool().wait(*wi);
-            return any_cast<TResult>(wi->getResult());
         }
 
         /**
          * Blocks until this Task is complete, or until the given timeout elapses.
-         * @param duration The maximum amount of time to wait.
+         * @param timeout_duration The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
         template<class Rep, class Period>
-        bool wait(std::chrono::duration<Rep, Period> duration) {
-            return wi->getOwningPool().wait(*wi, duration);
+        bool wait_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
+            return wi->getOwningPool().wait_for(*wi, timeout_duration);
+        }
+
+        /**
+         * Blocks until this Task is complete, or until the given timeout is reached.
+         * @param timeout_time The point at which to stop waiting.
+         * @return False if and only if timeout occurred.
+         */
+        template<class Clock, class Duration>
+        bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
+            return wi->getOwningPool().wait_until(*wi, timeout_time);
         }
 
         /**
          * Gets the result returned from this task, waiting if necessary.
          * @return The result returned from this task.
          */
-        [[nodiscard]] TResult getResult() {
-            return wait();
+        [[nodiscard]] TResult get() {
+            wait();
+            return any_cast<TResult>(wi->getResult());
         }
 
         [[nodiscard]] std::string getName() const {
@@ -414,12 +476,22 @@ namespace WorkerPool {
 
         /**
          * Blocks until this Task is complete, or until the given timeout elapses.
-         * @param duration The maximum amount of time to wait.
+         * @param timeout_duration The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
         template<class Rep, class Period>
-        bool wait(std::chrono::duration<Rep, Period> duration) {
-            return wi->getOwningPool().wait(*wi, duration);
+        bool wait_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
+            return wi->getOwningPool().wait_for(*wi, timeout_duration);
+        }
+
+        /**
+         * Blocks until this Task is complete, or until the given timeout is reached.
+         * @param timeout_time The point at which to stop waiting.
+         * @return False if and only if timeout occurred.
+         */
+        template<class Clock, class Duration>
+        bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
+            return wi->getOwningPool().wait_until(*wi, timeout_time);
         }
 
         [[nodiscard]] std::string getName() const {
@@ -472,12 +544,12 @@ namespace WorkerPool {
     }
 
     template<typename TaskIterator>
-    void Pool::waitAll(TaskIterator begin, TaskIterator end) {
+    void Pool::wait_all(TaskIterator begin, TaskIterator end) {
         if (begin == end)
             return;
-        log("waitAll(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
+        log("wait_all(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
         if (!allowWorkOffPoolThreads && threadOwningPool != this) {
-            naiveWaitAll(begin, end);
+            naive_wait_all(begin, end);
             return;
         }
 
@@ -498,8 +570,7 @@ namespace WorkerPool {
                     case WorkItem::State::Unstarted: {
                         if (item->trySetExecuting()) {
                             // This item was unstarted and now we can execute it synchronously.
-                            auto itemValue = item;
-                            {
+                            auto itemValue = item; {
                                 std::lock_guard lock(unstartedMutex);
                                 unstarted.erase(item->thisIterator);
                             }
@@ -526,6 +597,6 @@ namespace WorkerPool {
             return;
         }
         // Everything at this point should be either Executing or Done.
-        naiveWaitAll(firstExecuting, end);
+        naive_wait_all(firstExecuting, end);
     }
 }

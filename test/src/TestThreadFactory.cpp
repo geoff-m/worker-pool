@@ -1,7 +1,7 @@
 #include "TestUtils.h"
-#include "WorkerPool.h"
+#include "../../include/worker-pool/worker-pool.h"
 #include <atomic>
-using namespace  WorkerPool;
+using namespace  worker_pool;
 
 TEST(ThreadFactory, Basic) {
     std::atomic<int> threadsCreated = 0;
