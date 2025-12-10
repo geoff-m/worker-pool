@@ -24,8 +24,8 @@ pool pool(2);
 
 // Add some tasks to the pool.
 // The pool will begin executing them as soon as possible.
-Task t1 = pool.add([]{ puts("I'm a task"); });
-Task t2 = pool.add([]{ puts("I'm another task"); });
+task t1 = pool.add([]{ puts("I'm a task"); });
+task t2 = pool.add([]{ puts("I'm another task"); });
 
 // Ensure that the tasks are finished before proceeding.
 t1.wait();
@@ -40,10 +40,10 @@ pool pool(1);
 
 constexpr auto X = 2;
 constexpr auto Y = 5;
-Task sumTask = pool.add([X, Y]{ return X + Y; });
+task sumTask = pool.add([X, Y]{ return X + Y; });
  
-sumTask.wait(); // Calling wait is not needed here, since getResult will wait.
-const auto sum = sumTask.getResult();
+sumTask.wait(); // Calling wait is not needed here, since task::get will wait.
+const auto sum = sumTask.get();
 printf("%d + %d = %d\n", X, Y, sum); // Prints 2 + 5 = 7
 ```
 
@@ -55,14 +55,14 @@ constexpr auto X = 2;
 constexpr auto Y = 5;
 
 // Using labmda with capture
-Task sumTask = pool.add([X, Y]{ return X + Y; });
+task sumTask = pool.add([X, Y]{ return X + Y; });
 
 // Using extra arguments
-Task sumTask = pool.add([](int x, int y) { return x + y; }, X, Y);
+task sumTask = pool.add([](int x, int y) { return x + y; }, X, Y);
 
 // Using named callback
 static void add(int x, int y) { return x + y; }
-Task sumTask = pool.add(add, X, Y);
+task sumTask = pool.add(add, X, Y);
 ```
 
 ### Waiting for multiple tasks
@@ -70,7 +70,7 @@ Task sumTask = pool.add(add, X, Y);
 using namespace worker_pool;
 
 pool pool(1);
-std::vector<Task<void>> tasks;
+std::vector<task<void>> tasks;
 tasks.emplace_back(pool.add([]{ puts("I'm a task"); }));
 tasks.emplace_back(pool.add([]{ puts("I'm another task"); }));
 
@@ -105,7 +105,7 @@ else
     puts("Task timed out");
 
 // Timed wait for multiple tasks
-std::vector<Task<void>> tasks;
+std::vector<task<void>> tasks;
 tasks.emplace_back(pool.add(/* ... */));
 tasks.emplace_back(pool.add(/* ... */));
 
@@ -125,7 +125,7 @@ and returns a `std::thread` that executes it.
 ...
 using namespace worker_pool;
 
-Pool pool(4, 4,
+pool pool(4, 4,
   [&](const std::function<void()>& callback) {
     return std::thread([=] {
       // Custom logic to set up this pool thread
@@ -146,12 +146,12 @@ All threads created by the above pool will have their priority set to 20.
 Tasks can be given names, which you might find useful for debugging or other purposes.
 
 You assign a task's name when you create it,
-and you can retrieve the task's name with `Task::getName()`.
+and you can retrieve the task's name with `task::getName()`.
 Outside of this, the library does not use a task's name for any purpose.
 ```c++
 using namespace worker_pool;
 
-Pool pool(2);
+pool pool(2);
 auto task = pool.add("apples", []{});
 
 // Will print "Created task apples"
