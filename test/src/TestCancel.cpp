@@ -249,7 +249,7 @@ TEST(Cancel, CancelNonvoidDuringWaitAll) {
         });
         tasks.emplace_back(t2);
         auto waitTask = std::async(std::launch::async, [&] {
-            pool.wait_all(tasks);
+            pool::wait_all(tasks);
         });
         // t2 is unstarted, so canceling it should succeed.
         EXPECT_TRUE(t2.try_cancel());
@@ -293,7 +293,7 @@ TEST(Cancel, CancelVoidDuringWaitAll) {
         });
         tasks.emplace_back(t2);
         auto waitTask = std::async(std::launch::async, [&] {
-            pool.wait_all(tasks);
+            pool::wait_all(tasks);
         });
         // t2 is unstarted, so canceling it should succeed.
         EXPECT_TRUE(t2.try_cancel());
