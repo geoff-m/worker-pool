@@ -432,6 +432,7 @@ namespace worker_pool {
     public:
         /**
          * Blocks until this task is complete.
+         * Rethrows whatever exception the asynchronous operation threw, if any.
          * @return The result returned from this task.
          */
         void wait() {
@@ -485,6 +486,14 @@ namespace worker_pool {
         }
 
     public:
+        /**
+         * Blocks until this task is complete.
+         * Rethrows whatever exception the asynchronous operation threw, if any.
+         */
+        void get() {
+            (void)wi->getResult();
+        }
+
         /**
          * Blocks until this task is complete.
          */

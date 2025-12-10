@@ -25,6 +25,7 @@ add_executable(test-worker-pool
         src/TestName.cpp
         src/TimedWait.cpp
         src/TestDetectThreads.cpp
+        src/TestExceptions.cpp
 )
 
 target_include_directories(test-worker-pool PRIVATE src/include)
