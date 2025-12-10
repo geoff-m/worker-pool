@@ -79,13 +79,13 @@ tasks.emplace_back(pool.add([]{ puts("I'm a task"); }));
 tasks.emplace_back(pool.add([]{ puts("I'm another task"); }));
 
 // Wait for all tasks to be finished.
-pool.wait_all(tasks);
+pool::wait_all(tasks);
 
 // Equivalently,
-pool.wait_all(tasks.begin(), tasks.end());
+pool::wait_all(tasks.begin(), tasks.end());
 
 // Equivalently,
-pool.wait_all(tasks.data(), tasks.size());
+pool::wait_all(tasks.data(), tasks.size());
 ```
 Compared with sequentially calling `task::wait` on each of a set of tasks,
 `pool::wait_all` is more convenient, and in some scenarios, also more performant.
@@ -113,7 +113,7 @@ std::vector<task<void>> tasks;
 tasks.emplace_back(pool.add(/* ... */));
 tasks.emplace_back(pool.add(/* ... */));
 
-if (pool.wait_all_for(tasks, std::chrono::seconds(1)))
+if (pool::wait_all_for(tasks, std::chrono::seconds(1)))
     puts("All tasks are done");
 else
     puts("Not all tasks are done");
