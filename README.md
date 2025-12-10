@@ -9,6 +9,7 @@ WorkerPool is a thread pool. It aims to be easy to use.
  - The pool can await multiple tasks at once
  - Supports timeouts for waits
  - Simple API; `worker_pool::task` resembles `std::shared_future`
+ - Supports tasks that throw exceptions
  - You can provide your own thread factory
  - Not global, allows multiple pools in one process
  - Tasks can have names
@@ -115,6 +116,22 @@ if (pool.wait_all_for(tasks, std::chrono::seconds(1)))
     puts("All tasks are done");
 else
     puts("Not all tasks are done");
+```
+
+### Throwing exceptions from tasks
+Exceptions with tasks work like you'd expect from `std::future`.
+If a task throws an exception, the exception will be stored.
+Calls to `wait` will return immediately.
+Calling `get` will rethrow the exception.
+```c++
+pool pool;
+task<int> t = pool.add([] {
+    if (rand() < RAND_MAX / 2)
+        throw std::runtime_error("oops");
+    return 42;
+});
+
+t.get(); // Will either return 42 or (re)throw.
 ```
 
 ### Custom thread factory
