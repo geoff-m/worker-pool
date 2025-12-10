@@ -13,7 +13,7 @@ TEST(PreventWorkOffPoolThreads, WaitAll) {
             ASSERT_NE(mainThreadId, std::this_thread::get_id());
         }));
     }
-    pool.wait_all(tasks);
+    pool::wait_all(tasks);
 }
 
 TEST(PreventWorkOffPoolThreads, WaitOne) {

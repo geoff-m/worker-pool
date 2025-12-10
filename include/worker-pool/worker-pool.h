@@ -311,7 +311,7 @@ namespace worker_pool {
          * @param count Number of tasks.
          */
         template<typename TResult>
-        void wait_all(task<TResult>* tasks, size_t count) {
+        static void wait_all(task<TResult>* tasks, size_t count) {
             wait_all(tasks, tasks + count);
         }
 
@@ -324,7 +324,7 @@ namespace worker_pool {
          * @return False if and only if timeout occurred.
          */
         template<typename TResult, class Rep, class Period>
-        bool wait_all_for(task<TResult>* tasks, size_t count,
+        static bool wait_all_for(task<TResult>* tasks, size_t count,
                           const std::chrono::duration<Rep, Period>& timeout_duration) {
             return wait_all_for(tasks, tasks + count, timeout_duration);
         }
@@ -338,7 +338,7 @@ namespace worker_pool {
          * @return False if and only if timeout occurred.
          */
         template<typename TResult, class Clock, class Duration>
-        bool wait_all_until(task<TResult>* tasks, size_t count,
+        static bool wait_all_until(task<TResult>* tasks, size_t count,
                             const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return wait_all_until(tasks, tasks + count, timeout_time);
         }
@@ -350,7 +350,7 @@ namespace worker_pool {
          * @param end Iterator pointing one past the last task to be awaited.
          */
         template<typename TaskIterator>
-        void wait_all(TaskIterator begin, TaskIterator end);
+        static void wait_all(TaskIterator begin, TaskIterator end);
 
         /**
          * Blocks until all of the given tasks are finished or a timeout occurs.
@@ -361,7 +361,7 @@ namespace worker_pool {
          * @return False if and only if timeout occurred.
          */
         template<typename TaskIterator, class Rep, class Period>
-        bool wait_all_for(TaskIterator begin, TaskIterator end,
+        static bool wait_all_for(TaskIterator begin, TaskIterator end,
                           const std::chrono::duration<Rep, Period>& timeout_duration) {
             return naive_wait_all_for(begin, end, timeout_duration);
         }
@@ -375,7 +375,7 @@ namespace worker_pool {
          * @return False if and only if timeout occurred.
          */
         template<typename TaskIterator, class Clock, class Duration>
-        bool wait_all_for(TaskIterator begin, TaskIterator end,
+        static bool wait_all_for(TaskIterator begin, TaskIterator end,
                           const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return naive_wait_all_until(begin, end, timeout_time);
         }
@@ -386,7 +386,7 @@ namespace worker_pool {
          * @param tasks Iterable thing for tasks to be awaited.
          */
         template<typename IterableTasks>
-        void wait_all(IterableTasks tasks) {
+        static void wait_all(IterableTasks tasks) {
             wait_all(tasks.begin(), tasks.end());
         }
 
@@ -398,7 +398,7 @@ namespace worker_pool {
          * @return False if and only if timeout occurred.
          */
         template<typename IterableTasks, class Rep, class Period>
-        bool wait_all_for(IterableTasks tasks, const std::chrono::duration<Rep, Period>& timeout_duration) {
+        static bool wait_all_for(IterableTasks tasks, const std::chrono::duration<Rep, Period>& timeout_duration) {
             return naive_wait_all_for(tasks.begin(), tasks.end(), timeout_duration);
         }
 
@@ -410,7 +410,7 @@ namespace worker_pool {
          * @return False if and only if timeout occurred.
          */
         template<typename IterableTasks, class Clock, class Duration>
-        bool wait_all_until(IterableTasks tasks, const std::chrono::time_point<Clock, Duration>& timeout_time) {
+        static bool wait_all_until(IterableTasks tasks, const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return naive_wait_all_until(tasks.begin(), tasks.end(), timeout_time);
         }
     };
@@ -597,10 +597,6 @@ namespace worker_pool {
         if (begin == end)
             return;
         log("wait_all(%s .. %s)", begin->get_name().c_str(), std::prev(end)->get_name().c_str());
-        if (!allowWorkOffPoolThreads && threadOwningPool != this) {
-            naive_wait_all(begin, end);
-            return;
-        }
 
         // For each given item to await,
         // do it synchronously if it's unstarted.
@@ -617,12 +613,16 @@ namespace worker_pool {
                     case WorkItem::State::Done:
                         break;
                     case WorkItem::State::Unstarted: {
+                        auto& taskPool = item->getOwningPool();
+                        if (threadOwningPool != &taskPool && !taskPool.allowWorkOffPoolThreads) {
+                            goto asIfExecuting;
+                        }
                         if (item->trySetExecuting()) {
                             // This item was unstarted and now we can execute it synchronously.
                             auto itemValue = item;
                             {
-                                std::lock_guard lock(unstartedMutex);
-                                unstarted.erase(item->thisIterator);
+                                std::lock_guard lock(taskPool.unstartedMutex);
+                                taskPool.unstarted.erase(item->thisIterator);
                             }
                             itemValue->execute();
                         } else {
@@ -633,12 +633,13 @@ namespace worker_pool {
                         }
                         break;
                     }
-                    case WorkItem::State::Executing: {
-                        if (firstExecuting == end) {
-                            firstExecuting = it;
+                    case WorkItem::State::Executing:
+                    asIfExecuting: {
+                            if (firstExecuting == end) {
+                                firstExecuting = it;
+                            }
+                            break;
                         }
-                        break;
-                    }
                 }
             } while (needRetry);
         }

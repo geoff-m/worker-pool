@@ -77,7 +77,7 @@ TEST(TimedWait, WaitAllTimeoutFor) {
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
-    EXPECT_FALSE(pool.wait_all_for(tasks, milliseconds(1250)));
+    EXPECT_FALSE(pool::wait_all_for(tasks, milliseconds(1250)));
     const auto testEnd = steady_clock::now();
     const auto testDuration = testEnd - testStart;
     EXPECT_LT(testDuration, milliseconds(1500));
@@ -90,7 +90,7 @@ TEST(TimedWait, WaitAllTimeoutUntil) {
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
-    EXPECT_FALSE(pool.wait_all_until(tasks, nowPlus(milliseconds(1250))));
+    EXPECT_FALSE(pool::wait_all_until(tasks, nowPlus(milliseconds(1250))));
     const auto testEnd = steady_clock::now();
     const auto testDuration = testEnd - testStart;
     EXPECT_LT(testDuration, milliseconds(1500));
@@ -103,7 +103,7 @@ TEST(TimedWait, WaitAllNoTimeout) {
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
     tasks.emplace_back(pool.add([] { sleepMs(500); }));
-    EXPECT_TRUE(pool.wait_all_for(tasks, seconds(10)));
+    EXPECT_TRUE(pool::wait_all_for(tasks, seconds(10)));
     const auto testEnd = steady_clock::now();
     const auto testDuration = testEnd - testStart;
     EXPECT_LT(testDuration, seconds(2));

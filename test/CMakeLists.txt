@@ -27,6 +27,7 @@ add_executable(test-worker-pool
         src/TestDetectThreads.cpp
         src/TestExceptions.cpp
         src/TestCancel.cpp
+        src/TestMultipool.cpp
 )
 
 target_include_directories(test-worker-pool PRIVATE src/include)

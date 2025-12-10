@@ -11,7 +11,7 @@ TEST(DetectThreads, ParallelismAtLeastHardwareConcurrency) {
     for (auto i = 0u; i < EXPECTED_THREADS; i++) {
         tasks.emplace_back(pool.add(sleepMs, 1000));
     }
-    pool.wait_all(tasks);
+    pool::wait_all(tasks);
     const auto endTime = std::chrono::steady_clock::now();
     const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
     EXPECT_LT(durationMs, 1500);
