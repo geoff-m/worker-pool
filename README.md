@@ -4,14 +4,15 @@ WorkerPool is a thread pool. It aims to be easy to use.
 
 ## Features
  - Configurable degree of parallelism
+ - Simple API; `worker_pool::task` resembles `std::shared_future`
  - Tasks can be void or have copy-constructible output
  - Tasks can create and await other tasks
  - The pool can await multiple tasks at once
  - Supports timeouts for waits
- - Simple API; `worker_pool::task` resembles `std::shared_future`
+ - Supports cancellation for unstarted tasks
  - Supports tasks that throw exceptions
- - You can provide your own thread factory
  - Not global, allows multiple pools in one process
+ - You can provide your own thread factory
  - Tasks can have names
 
 ## Usage
@@ -134,6 +135,63 @@ task<int> t = pool.add([] {
 t.get(); // Will either return 42 or (re)throw.
 ```
 
+### Stopping work
+Once your tasks start running, only you can interrupt them
+(using `std::stop_token`, etc.).
+The pool destructor waits for all tasks to finish,
+so if this takes too long for you,
+you need to give your tasks some signal to stop,
+or consider simply making them take less time unconditionally.
+That said, WorkerPool does offer some ways to stop work.
+
+#### Shutting down a pool
+Calling `shutDown` on a pool prevents new work from being added to it.
+`shutDown(false)` is called automatically in the pool destructor.
+```c++
+pool p;
+p.add([]{});
+p.shutDown();
+
+// This will throw an exception because the pool has been shut down
+p.add([]{}); 
+```
+
+By default, a pool eventually does all the work ever added to it,
+even after `shutDown` is called.
+By passing `true` to `shutDown`,
+you can tell the pool to cancel all unstarted work.
+```c++
+// Create a pool that can do 1 thing at a time.
+pool pool(1, 0, false);
+
+auto t1 = pool.add([]{ sleep(2); });
+auto t2 = pool.add([]{ sleep(2); });
+auto t3 = pool.add([]{ sleep(2); });
+sleep(1); // One of the three tasks will begin during this time.
+pool.shutDown(true); // This will cancel the other tasks.
+```
+
+#### Canceling a specific task
+Call `try_cancel` to cancel an unstarted task.
+`try_cancel` will fail if the task has already been started.
+Awaiting a canceled task will immediately finish.
+Getting the result from a canceled task will immediately throw an exception.
+```c++
+pool pool;
+auto t = pool.add([]{ return 123; });
+if (t.try_cancel()) {
+    // Succesfully canceled task.
+    // It is guaranteed not to start.
+    
+    t.get(); // Throws an exception immediately.
+} else {
+    // Failed to cancel task.
+    // It has already been started, finished, or canceled.
+    
+    t.get(); // Returns 123. might not return immediately.
+}
+```
+
 ### Custom thread factory
 You can provide your own threads for use by the pool.
 To do so, provide a callable that takes the pool's `std::function<void()>` callback
@@ -166,7 +224,7 @@ All threads created by the above pool will have their priority set to 20.
 Tasks can be given names, which you might find useful for debugging or other purposes.
 
 You assign a task's name when you create it,
-and you can retrieve the task's name with `task::getName()`.
+and you can retrieve the task's name with `task::get_name()`.
 Outside of this, the library does not use a task's name for any purpose.
 ```c++
 using namespace worker_pool;
@@ -175,7 +233,7 @@ pool pool;
 auto task = pool.add("apples", []{});
 
 // Will print "Created task apples"
-std::cout << "Created task " << task.getName() << '\n';
+std::cout << "Created task " << task.get_name() << '\n';
 ```
 
 ### More examples
