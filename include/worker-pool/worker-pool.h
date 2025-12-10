@@ -556,8 +556,9 @@ namespace worker_pool {
         throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this,
                                              lastItemId++, name);
-        wi->setCallback(std::packaged_task<std::any()>([wi, callback, args...] {
-            wi->throwIfCanceled();
+        auto* pwi = wi.get(); // Avoid reference cycle
+        wi->setCallback(std::packaged_task<std::any()>([=] {
+            pwi->throwIfCanceled();
             TResult result = std::invoke(callback, args...);
             return std::any(result);
         }));
@@ -579,8 +580,9 @@ namespace worker_pool {
         std::lock_guard lock(unstartedMutex);
         throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this, lastItemId++, name);
-        wi->setCallback(std::packaged_task<std::any()>([wi, callback, args...] {
-            wi->throwIfCanceled();
+        auto* pwi = wi.get(); // Avoid reference cycle
+        wi->setCallback(std::packaged_task<std::any()>([=] {
+            pwi->throwIfCanceled();
             std::invoke(callback, args...);
             return std::any(0); // dummy value
         }));

@@ -3,7 +3,7 @@ on: [ push ]
 
 jobs:
   unit-tests:
-    name: Unit tests with Thread Sanitizer
+    name: Unit tests with sanitizer
     runs-on: [ 'ubuntu-latest' ]
     strategy:
       matrix:
