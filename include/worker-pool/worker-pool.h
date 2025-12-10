@@ -141,6 +141,12 @@ namespace worker_pool {
         }
 
         /**
+         * Creates a new pool with an automatic number of threads.
+        */
+        pool() : pool(detectParallelism()) {
+        }
+
+        /**
          * Destroys the pool.
          * Shuts down the pool (see pool::shutDown()),
          * then waits for all work previously added to the pool to finish.
@@ -164,6 +170,18 @@ namespace worker_pool {
         void throwIfStopped() const;
 
         void unsafeAddThread();
+
+        [[nodiscard]] static unsigned int detectParallelism() {
+#if defined(__linux__) && !defined(__ANDROID__)
+            cpu_set_t cpus;
+            if (0 == sched_getaffinity(0, sizeof(cpus), &cpus)) {
+                const auto count = CPU_COUNT(&cpus);
+                if (count > 0)
+                    return count;
+            }
+#endif
+            return std::max(1u, std::thread::hardware_concurrency());
+        }
 
     public:
         /**

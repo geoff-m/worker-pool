@@ -50,7 +50,7 @@ TEST(BasicTests, BinaryLambda) {
     pool pool(2);
     constexpr auto X = 2;
     constexpr auto Y = 3;
-    auto binaryLambdaFuture = pool.add([](int x, int y) { return x + y; },
+    task binaryLambdaFuture = pool.add([](int x, int y) { return x + y; },
                                        X, Y);
     binaryLambdaFuture.wait();
     EXPECT_EQ(X + Y, binaryLambdaFuture.get());
@@ -60,7 +60,7 @@ TEST(BasicTests, VoidLambda) {
     pool pool(2);
     int voidSideEffect = 0;
     constexpr auto VALUE = 123;
-    auto voidFuture = pool.add([&voidSideEffect] { voidSideEffect = VALUE; });
+    task voidFuture = pool.add([&voidSideEffect] { voidSideEffect = VALUE; });
     voidFuture.wait();
     EXPECT_EQ(VALUE, voidSideEffect);
 }

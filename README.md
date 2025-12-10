@@ -19,11 +19,11 @@ WorkerPool is a thread pool. It aims to be easy to use.
 ```c++
 using namespace worker_pool;
 
-// Create a pool that will run up to 2 threads in parallel.
-pool pool(2);
+// Create a thread pool with an automatic number of threads.
+pool pool;
 
 // Add some tasks to the pool.
-// The pool will begin executing them as soon as possible.
+// The pool will begin executing them as soon as possible but in no particular order.
 task t1 = pool.add([]{ puts("I'm a task"); });
 task t2 = pool.add([]{ puts("I'm another task"); });
 
@@ -36,7 +36,8 @@ t2.wait();
 ```c++
 using namespace worker_pool;
 
-pool pool(1);
+// Create a pool that will do up to 8 things in parallel.
+pool pool(8);
 
 constexpr auto X = 2;
 constexpr auto Y = 5;
@@ -44,6 +45,7 @@ task sumTask = pool.add([X, Y]{ return X + Y; });
  
 sumTask.wait(); // Calling wait is not needed here, since task::get will wait.
 const auto sum = sumTask.get();
+
 printf("%d + %d = %d\n", X, Y, sum); // Prints 2 + 5 = 7
 ```
 
@@ -60,7 +62,7 @@ task sumTask = pool.add([X, Y]{ return X + Y; });
 // Using extra arguments
 task sumTask = pool.add([](int x, int y) { return x + y; }, X, Y);
 
-// Using named callback
+// Using named callback function
 static void add(int x, int y) { return x + y; }
 task sumTask = pool.add(add, X, Y);
 ```
@@ -69,7 +71,7 @@ task sumTask = pool.add(add, X, Y);
 ```c++
 using namespace worker_pool;
 
-pool pool(1);
+pool pool;
 std::vector<task<void>> tasks;
 tasks.emplace_back(pool.add([]{ puts("I'm a task"); }));
 tasks.emplace_back(pool.add([]{ puts("I'm another task"); }));
@@ -102,7 +104,7 @@ auto task = pool.add(/* ... */);
 if (task.wait_for(std::chrono::seconds(1))) 
     puts("Task is done");
 else
-    puts("Task timed out");
+    puts("Task is not done");
 
 // Timed wait for multiple tasks
 std::vector<task<void>> tasks;
@@ -116,9 +118,10 @@ else
 ```
 
 ### Custom thread factory
-You can provide your own thread for use by the pool.
+You can provide your own threads for use by the pool.
 To do so, provide a callable that takes the pool's `std::function<void()>` callback
 and returns a `std::thread` that executes it.
+The pool will execute this callback whenever it wants to create a thread.
 ```c++
 #include <pthread.h>
 #include <cstdio>
@@ -151,7 +154,7 @@ Outside of this, the library does not use a task's name for any purpose.
 ```c++
 using namespace worker_pool;
 
-pool pool(2);
+pool pool;
 auto task = pool.add("apples", []{});
 
 // Will print "Created task apples"
