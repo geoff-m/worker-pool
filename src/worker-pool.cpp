@@ -36,19 +36,38 @@ namespace worker_pool {
         }
     }
 
+    unsigned int pool::detectParallelism() {
+#if defined(__linux__) && !defined(__ANDROID__)
+        cpu_set_t cpus;
+        if (0 == sched_getaffinity(0, sizeof(cpus), &cpus)) {
+            const auto count = CPU_COUNT(&cpus);
+            if (count > 0)
+                return count;
+        }
+#endif
+        return std::max(1u, std::thread::hardware_concurrency());
+    }
 
     pool::~pool() {
-        shutDown();
+        shutDown(false);
         std::lock_guard lock(threadsMutex);
         for (auto& thread: threads) {
             thread.join();
         }
     }
 
-    void pool::shutDown() {
+    void pool::shutDown(bool cancelUnstarted) {
+        bool expected = false;
+        if (!stopping.compare_exchange_strong(expected, true))
+            return;
         {
             std::lock_guard lock(unstartedMutex);
             stopping.store(true, std::memory_order::release);
+            if (cancelUnstarted) {
+                for (const auto& wi: unstarted)
+                    wi->trySetCanceled();
+                unstarted.clear();
+            }
         }
         cv.notify_all();
     }
@@ -65,18 +84,25 @@ namespace worker_pool {
 
     pool::WorkItem::WorkItem(pool& owner,
                              size_t id,
-                             std::packaged_task<std::any()> task,
                              std::string name)
         : id(id),
           owningPool(owner),
-          task(std::move(task)),
-          future(this->task.get_future().share()),
-    name(std::move(name)){
+          name(std::move(name)) {
         state.store(State::Unstarted, std::memory_order::release);
     }
 
     void pool::WorkItem::enableDeletion(TIterator self) {
         this->thisIterator = self;
+    }
+
+    void pool::WorkItem::setCallback(std::packaged_task<std::any()>&& callback) {
+        task = std::move(callback),
+                future = task.get_future().share();
+    }
+
+    void pool::WorkItem::throwIfCanceled() {
+        if (state.load(std::memory_order::acquire) == State::Canceled)
+            throw std::runtime_error("This task has been canceled");
     }
 
     bool pool::WorkItem::operator==(const WorkItem& other) const {
@@ -91,6 +117,14 @@ namespace worker_pool {
         }
         log("trySetExecuting failed for task %s", getName().c_str());
         return false;
+    }
+
+    bool pool::WorkItem::trySetCanceled() {
+        State oldState = State::Unstarted;
+        if (!state.compare_exchange_strong(oldState, State::Canceled))
+            return false;
+        execute();
+        return true;
     }
 
     void pool::WorkItem::execute() {
@@ -110,6 +144,10 @@ namespace worker_pool {
 
     std::string pool::WorkItem::getName() const {
         return name;
+    }
+
+    pool::WorkItem::TIterator pool::WorkItem::getIterator() const {
+        return thisIterator;
     }
 
     void pool::maybeAddThreadBeforeWait(const WorkItem& workItem) {

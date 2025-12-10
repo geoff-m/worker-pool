@@ -48,7 +48,8 @@ namespace worker_pool {
             enum class State {
                 Unstarted,
                 Executing,
-                Done
+                Done,
+                Canceled
             };
 
             [[nodiscard]] static const char* workItemStateToString(State state);
@@ -65,16 +66,21 @@ namespace worker_pool {
         public:
             explicit WorkItem(pool& owner,
                               size_t id,
-                              std::packaged_task<std::any()> task,
                               std::string name);
 
             WorkItem(const WorkItem& other) = delete;
 
             void enableDeletion(TIterator self);
 
+            void setCallback(std::packaged_task<std::any()>&& callback);
+
+            void throwIfCanceled();
+
             [[nodiscard]] bool operator==(const WorkItem& other) const;
 
             [[nodiscard]] bool trySetExecuting();
+
+            bool trySetCanceled();
 
             void execute();
 
@@ -83,6 +89,8 @@ namespace worker_pool {
             [[nodiscard]] std::any getResult();
 
             [[nodiscard]] std::string getName() const;
+
+            [[nodiscard]] TIterator getIterator() const;
         };
 
         template<typename T>
@@ -155,11 +163,12 @@ namespace worker_pool {
 
         /**
          * Shuts down the pool.
-         * Tasks already running or queued in the pool will still run normally.
+         * Tasks already running will continue running normally until they complete.
          * Attempting to add tasks to a shut down pool will throw an exception.
          * A shut down pool cannot be restarted.
+         * @param cancelUnstarted Whether unstarted pool tasks should be canceled.
          */
-        void shutDown();
+        void shutDown(bool cancelUnstarted = false);
 
     private:
         std::condition_variable cv;
@@ -171,17 +180,7 @@ namespace worker_pool {
 
         void unsafeAddThread();
 
-        [[nodiscard]] static unsigned int detectParallelism() {
-#if defined(__linux__) && !defined(__ANDROID__)
-            cpu_set_t cpus;
-            if (0 == sched_getaffinity(0, sizeof(cpus), &cpus)) {
-                const auto count = CPU_COUNT(&cpus);
-                if (count > 0)
-                    return count;
-            }
-#endif
-            return std::max(1u, std::thread::hardware_concurrency());
-        }
+        [[nodiscard]] static unsigned int detectParallelism();
 
     public:
         /**
@@ -276,7 +275,7 @@ namespace worker_pool {
         static void naive_wait_all(TaskIterator begin, TaskIterator end) {
             if (begin == end)
                 return;
-            log("naive_wait_all(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
+            log("naive_wait_all(%s .. %s)", begin->get_name().c_str(), std::prev(end)->get_name().c_str());
             for (auto it = begin; it != end; ++it) {
                 it->wait();
             }
@@ -287,7 +286,7 @@ namespace worker_pool {
                                        const std::chrono::duration<Rep, Period>& timeout_duration) {
             if (begin == end)
                 return true;
-            log("naive_wait_all_for(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
+            log("naive_wait_all_for(%s .. %s)", begin->get_name().c_str(), std::prev(end)->get_name().c_str());
             return naive_wait_all_until(begin, end, std::chrono::steady_clock::now() + timeout_duration);
         }
 
@@ -296,7 +295,7 @@ namespace worker_pool {
                                          const std::chrono::time_point<Clock, Duration>& timeout_time) {
             if (begin == end)
                 return true;
-            log("naive_wait_all_until(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
+            log("naive_wait_all_until(%s .. %s)", begin->get_name().c_str(), std::prev(end)->get_name().c_str());
             for (auto it = begin; it != end; ++it) {
                 if (!it->wait_until(timeout_time))
                     return false;
@@ -468,8 +467,17 @@ namespace worker_pool {
             return any_cast<TResult>(wi->getResult());
         }
 
-        [[nodiscard]] std::string getName() const {
+        [[nodiscard]] std::string get_name() const {
             return wi->getName();
+        }
+
+        bool try_cancel() {
+            auto& pool = wi->getOwningPool();
+            std::lock_guard lock(pool.unstartedMutex);
+            if (!wi->trySetCanceled())
+                return false;
+            pool.unstarted.erase(wi->getIterator());
+            return true;
         }
     };
 
@@ -491,7 +499,7 @@ namespace worker_pool {
          * Rethrows whatever exception the asynchronous operation threw, if any.
          */
         void get() {
-            (void)wi->getResult();
+            (void) wi->getResult();
         }
 
         /**
@@ -521,8 +529,17 @@ namespace worker_pool {
             return wi->getOwningPool().wait_until(*wi, timeout_time);
         }
 
-        [[nodiscard]] std::string getName() const {
+        [[nodiscard]] std::string get_name() const {
             return wi->getName();
+        }
+
+        bool try_cancel() {
+            auto& pool = wi->getOwningPool();
+            std::lock_guard lock(pool.unstartedMutex);
+            if (!wi->trySetCanceled())
+                return false;
+            pool.unstarted.erase(wi->getIterator());
+            return true;
         }
     };
 
@@ -538,11 +555,12 @@ namespace worker_pool {
         std::lock_guard lock(unstartedMutex);
         throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this,
-                                             lastItemId++,
-                                             std::packaged_task<std::any()>([=] {
-                                                 TResult result = std::invoke(callback, args...);
-                                                 return std::any(result);
-                                             }), name);
+                                             lastItemId++, name);
+        wi->setCallback(std::packaged_task<std::any()>([wi, callback, args...] {
+            wi->throwIfCanceled();
+            TResult result = std::invoke(callback, args...);
+            return std::any(result);
+        }));
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
         cv.notify_one();
@@ -560,10 +578,12 @@ namespace worker_pool {
     auto pool::add(std::string name, TCallback callback, TArgs... args) -> task<void> {
         std::lock_guard lock(unstartedMutex);
         throwIfStopped();
-        auto wi = std::make_shared<WorkItem>(*this, lastItemId++, std::packaged_task<std::any()>([=] {
+        auto wi = std::make_shared<WorkItem>(*this, lastItemId++, name);
+        wi->setCallback(std::packaged_task<std::any()>([wi, callback, args...] {
+            wi->throwIfCanceled();
             std::invoke(callback, args...);
             return std::any(0); // dummy value
-        }), name);
+        }));
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
         cv.notify_one();
@@ -574,7 +594,7 @@ namespace worker_pool {
     void pool::wait_all(TaskIterator begin, TaskIterator end) {
         if (begin == end)
             return;
-        log("wait_all(%s .. %s)", begin->getName().c_str(), std::prev(end)->getName().c_str());
+        log("wait_all(%s .. %s)", begin->get_name().c_str(), std::prev(end)->get_name().c_str());
         if (!allowWorkOffPoolThreads && threadOwningPool != this) {
             naive_wait_all(begin, end);
             return;
@@ -589,7 +609,7 @@ namespace worker_pool {
             do {
                 needRetry = false;
                 const auto state = item->state.load(std::memory_order::acquire);
-                log("%s state is %s", it->getName().c_str(), WorkItem::workItemStateToString(state));
+                log("%s state is %s", it->get_name().c_str(), WorkItem::workItemStateToString(state));
                 switch (state) {
                     default:
                     case WorkItem::State::Done:
@@ -597,7 +617,8 @@ namespace worker_pool {
                     case WorkItem::State::Unstarted: {
                         if (item->trySetExecuting()) {
                             // This item was unstarted and now we can execute it synchronously.
-                            auto itemValue = item; {
+                            auto itemValue = item;
+                            {
                                 std::lock_guard lock(unstartedMutex);
                                 unstarted.erase(item->thisIterator);
                             }
