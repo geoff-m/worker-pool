@@ -19,6 +19,7 @@ namespace worker_pool {
                                            timeNanos, threadKind, pthread_self());
         vsnprintf(buf + prefixLength, sizeof(buf) - prefixLength, format, args);
         puts(buf);
+        fflush(stdout);
         va_end(args);
 #endif
     }
@@ -48,6 +49,39 @@ namespace worker_pool {
         return std::max(1u, std::thread::hardware_concurrency());
     }
 
+    thread_local pool::WorkItem* pool::executingWorkItem = nullptr;
+
+    void pool::failIfWaitingMayDeadlock(const WorkItem& toAwait) {
+#if defined(WORKER_POOL_DEADLOCK_DETECTION) && defined(WORKER_POOL_DEADLOCK_DETECTION_STRICT)
+        if (!executingWorkItem)
+            return;
+        log("%s is about to start waiting for %s", executingWorkItem->getName().c_str(),
+            toAwait.getName().c_str());
+        // Walk the wait chain, looking for the WorkItem we're currently executing.
+        auto* waitingFor = &toAwait;
+        while (waitingFor) {
+            auto* waitingForNext = waitingFor->waitingFor;
+            log("%s is waiting for %s", waitingFor->name.c_str(),
+                waitingForNext ? waitingForNext->name.c_str() : "nothing");
+            if (waitingForNext == executingWorkItem) {
+#ifdef WORKER_POOL_DEADLOCK_DETECTION_ABORT
+                std::abort();
+#else
+                throw std::runtime_error("The requested operation would deadlock");
+#endif
+            }
+
+            waitingFor = waitingForNext;
+        }
+#endif
+    }
+
+    void pool::failIfWaitingWillDeadlock(const WorkItem& toAwait) {
+#if defined(WORKER_POOL_DEADLOCK_DETECTION)
+        failIfWaitingMayDeadlock(toAwait);
+#endif
+    }
+
     pool::~pool() {
         shutDown(false);
         std::lock_guard lock(threadsMutex);
@@ -59,8 +93,7 @@ namespace worker_pool {
     void pool::shutDown(bool cancelUnstarted) {
         bool expected = false;
         if (!stopping.compare_exchange_strong(expected, true))
-            return;
-        {
+            return; {
             std::lock_guard lock(unstartedMutex);
             stopping.store(true, std::memory_order::release);
             if (cancelUnstarted) {
@@ -128,9 +161,12 @@ namespace worker_pool {
     }
 
     void pool::WorkItem::execute() {
+        auto* oldExecuting = executingWorkItem;
+        executingWorkItem = this;
         log("Beginning task %s", getName().c_str());
         task();
         state.store(State::Done, std::memory_order::release);
+        executingWorkItem = oldExecuting;
         log("Finished task %s", getName().c_str());
     }
 
@@ -166,6 +202,7 @@ namespace worker_pool {
     }
 
     void pool::wait(WorkItem& workItem) {
+        failIfWaitingMayDeadlock(workItem);
         // retry loop
         while (true) {
             auto state = workItem.state.load(std::memory_order::acquire);
@@ -184,8 +221,7 @@ namespace worker_pool {
                         return;
                     }
                     // Execute it synchronously.
-                    bool doExecute = false;
-                    {
+                    bool doExecute = false; {
                         std::lock_guard lock(unstartedMutex);
                         if (workItem.trySetExecuting()) {
                             unstarted.erase(workItem.thisIterator);
@@ -200,9 +236,17 @@ namespace worker_pool {
                 }
                 case WorkItem::State::Executing: {
                     // Waiting for an item that's currently being executed.
+                    failIfWaitingWillDeadlock(workItem);
+                    WorkItem* oldWaitingFor = nullptr;
+                    if (executingWorkItem) {
+                        oldWaitingFor = executingWorkItem->waitingFor;
+                        executingWorkItem->waitingFor = &workItem;
+                    }
                     maybeAddThreadBeforeWait(workItem);
                     // Block this thread.
                     workItem.future.wait();
+                    if (executingWorkItem)
+                        executingWorkItem->waitingFor = oldWaitingFor;
                     return;
                 }
             }

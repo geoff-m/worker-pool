@@ -91,6 +91,8 @@ namespace worker_pool {
             [[nodiscard]] std::string getName() const;
 
             [[nodiscard]] TIterator getIterator() const;
+
+            WorkItem* waitingFor = nullptr;
         };
 
         template<typename T>
@@ -325,7 +327,7 @@ namespace worker_pool {
          */
         template<typename TResult, class Rep, class Period>
         static bool wait_all_for(task<TResult>* tasks, size_t count,
-                          const std::chrono::duration<Rep, Period>& timeout_duration) {
+                                 const std::chrono::duration<Rep, Period>& timeout_duration) {
             return wait_all_for(tasks, tasks + count, timeout_duration);
         }
 
@@ -339,7 +341,7 @@ namespace worker_pool {
          */
         template<typename TResult, class Clock, class Duration>
         static bool wait_all_until(task<TResult>* tasks, size_t count,
-                            const std::chrono::time_point<Clock, Duration>& timeout_time) {
+                                   const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return wait_all_until(tasks, tasks + count, timeout_time);
         }
 
@@ -362,7 +364,7 @@ namespace worker_pool {
          */
         template<typename TaskIterator, class Rep, class Period>
         static bool wait_all_for(TaskIterator begin, TaskIterator end,
-                          const std::chrono::duration<Rep, Period>& timeout_duration) {
+                                 const std::chrono::duration<Rep, Period>& timeout_duration) {
             return naive_wait_all_for(begin, end, timeout_duration);
         }
 
@@ -376,7 +378,7 @@ namespace worker_pool {
          */
         template<typename TaskIterator, class Clock, class Duration>
         static bool wait_all_for(TaskIterator begin, TaskIterator end,
-                          const std::chrono::time_point<Clock, Duration>& timeout_time) {
+                                 const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return naive_wait_all_until(begin, end, timeout_time);
         }
 
@@ -413,6 +415,13 @@ namespace worker_pool {
         static bool wait_all_until(IterableTasks tasks, const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return naive_wait_all_until(tasks.begin(), tasks.end(), timeout_time);
         }
+
+    private:
+
+        static thread_local WorkItem* executingWorkItem;
+
+        static void failIfWaitingMayDeadlock(const WorkItem& toAwait);
+        static void failIfWaitingWillDeadlock(const WorkItem& toAwait);
     };
 
     /**
@@ -619,8 +628,7 @@ namespace worker_pool {
                         }
                         if (item->trySetExecuting()) {
                             // This item was unstarted and now we can execute it synchronously.
-                            auto itemValue = item;
-                            {
+                            auto itemValue = item; {
                                 std::lock_guard lock(taskPool.unstartedMutex);
                                 taskPool.unstarted.erase(item->thisIterator);
                             }
