@@ -53,8 +53,9 @@ TEST(Deadlock, Two) {
     pt2 = &t2;
     auto t3 = pool.add("t3", [&] { t1.wait(); });
     pt3 = &t3;
-    t1.wait();
-    t2.get();
-    t3.get();
-    EXPECT_ANY_THROW(t1.get());
+    EXPECT_ANY_THROW({
+        t1.get();
+        t2.get();
+        t3.get();
+    });
 }
