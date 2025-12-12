@@ -44,29 +44,18 @@ class WaitCycle {
     task<void> makeWaiter(pool& pool, int index) {
         const auto name = std::string("t") + std::to_string(index);
         return pool.add(name, [&, index, name] {
-            printf("%s awaiting mutex\n", name.c_str());
             std::unique_lock lock(mutex);
-            printf("%s awaiting cv\n", name.c_str());
             taskStarted.wait(lock, [&, index] {
                 if (tasks.size() != static_cast<size_t>(length))
                     return false;
-
                 int expected = index;
                 int next = (expected + 1) % length;
-                if (startNext.compare_exchange_strong(expected, next)) {
-                    printf("%s Changed startNext from %d to %d\n", name.c_str(), expected, next);
-                    return true;
-                } else {
-                    printf("%s still waiting for startNext == %d (currently %d)\n", name.c_str(), index, expected);
-                }
-                return false;
+                return startNext.compare_exchange_strong(expected, next);
             });
             lock.unlock();
             taskStarted.notify_all();
             int toAwaitIdx = (index + 1) % length;
             auto& toAwait = tasks[toAwaitIdx];
-            printf("%s awaiting task %s\n", name.c_str(), toAwait.get_name().c_str());
-
             toAwait.get();
         });
     }
