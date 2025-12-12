@@ -1,4 +1,5 @@
-#include "../include/worker-pool/worker-pool.h"
+#include "worker-pool/worker-pool.h"
+#include <sstream>
 
 #ifdef WORKER_POOL_LOGGING
 #include <cstdarg>
@@ -10,7 +11,7 @@ namespace worker_pool {
 #ifdef WORKER_POOL_LOGGING
         va_list args;
         va_start(args, format);
-        char buf[256];
+        char buf[512];
         buf[sizeof(buf) - 1] = '\0';
         const auto timeNanos = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::high_resolution_clock::now().time_since_epoch()).count();
@@ -49,38 +50,54 @@ namespace worker_pool {
         return std::max(1u, std::thread::hardware_concurrency());
     }
 
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
     thread_local pool::WorkItem* pool::executingWorkItem = nullptr;
 
-    void pool::failIfWaitingMayDeadlock(const WorkItem& toAwait) {
-#if defined(WORKER_POOL_DEADLOCK_DETECTION) && defined(WORKER_POOL_DEADLOCK_DETECTION_STRICT)
+    std::string pool::formatWaitChain(const WorkItem& wi) {
+        std::stringstream ss;
+        ss << wi.getName();
+        auto* p = wi.waitingFor;
+        while (p) {
+            ss << " -> " << p->getName();
+            p = p->waitingFor;
+        }
+        return ss.str();
+    }
+
+    static std::mutex deadlockCheckMutex;
+    void pool::checkDeadlock(WorkItem& toAwait) {
         if (!executingWorkItem)
             return;
+        std::lock_guard deadlockCheckLock(deadlockCheckMutex);
         log("%s is about to start waiting for %s", executingWorkItem->getName().c_str(),
             toAwait.getName().c_str());
         // Walk the wait chain, looking for the WorkItem we're currently executing.
         auto* waitingFor = &toAwait;
+        std::list<std::unique_lock<std::mutex>> locks;
         while (waitingFor) {
+            // todo: lock waitingFor->waitingForMutex
+            // todo: may also need to guard this whole function with a lock, to avoid deadlocks caused by concurrent execution of it.
+            locks.emplace_back(waitingFor->waitingForMutex, std::adopt_lock);
             auto* waitingForNext = waitingFor->waitingFor;
             log("%s is waiting for %s", waitingFor->name.c_str(),
                 waitingForNext ? waitingForNext->name.c_str() : "nothing");
-            if (waitingForNext == executingWorkItem) {
+            if (waitingFor == executingWorkItem) {
+                log("Deadlock detected: %s would wait for itself via %s",
+                    executingWorkItem->getName().c_str(),
+                    formatWaitChain(toAwait).c_str());
 #ifdef WORKER_POOL_DEADLOCK_DETECTION_ABORT
                 std::abort();
 #else
                 throw std::runtime_error("The requested operation would deadlock");
 #endif
+            } else {
+                log("%s != %s", executingWorkItem->getName().c_str(), waitingFor->getName().c_str());
             }
 
             waitingFor = waitingForNext;
         }
-#endif
     }
-
-    void pool::failIfWaitingWillDeadlock(const WorkItem& toAwait) {
-#if defined(WORKER_POOL_DEADLOCK_DETECTION)
-        failIfWaitingMayDeadlock(toAwait);
 #endif
-    }
 
     pool::~pool() {
         shutDown(false);
@@ -93,7 +110,8 @@ namespace worker_pool {
     void pool::shutDown(bool cancelUnstarted) {
         bool expected = false;
         if (!stopping.compare_exchange_strong(expected, true))
-            return; {
+            return;
+        {
             std::lock_guard lock(unstartedMutex);
             stopping.store(true, std::memory_order::release);
             if (cancelUnstarted) {
@@ -161,12 +179,16 @@ namespace worker_pool {
     }
 
     void pool::WorkItem::execute() {
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
         auto* oldExecuting = executingWorkItem;
         executingWorkItem = this;
+#endif
         log("Beginning task %s", getName().c_str());
         task();
         state.store(State::Done, std::memory_order::release);
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
         executingWorkItem = oldExecuting;
+#endif
         log("Finished task %s", getName().c_str());
     }
 
@@ -201,8 +223,26 @@ namespace worker_pool {
         }
     }
 
+
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
+#define PUSH_WAITING_FOR do { if (executingWorkItem) { \
+std::lock_guard waitingForLock(executingWorkItem->waitingForMutex); \
+oldWaitingFor = executingWorkItem->waitingFor; \
+executingWorkItem->waitingFor = &workItem; \
+log("%s is now awaiting %s", executingWorkItem->getName().c_str(), workItem.getName().c_str()); \
+} } while (0)
+#define POP_WAITING_FOR do { if (executingWorkItem) \
+executingWorkItem->waitingFor = oldWaitingFor; \
+} while (0)
+#else
+#define PUSH_WAITING_FOR
+#define POP_WAITING_FOR
+#endif
+
     void pool::wait(WorkItem& workItem) {
-        failIfWaitingMayDeadlock(workItem);
+        FAIL_IF_WAITING_MAY_DEADLOCK(workItem);
+        WorkItem* oldWaitingFor = nullptr;
+
         // retry loop
         while (true) {
             auto state = workItem.state.load(std::memory_order::acquire);
@@ -216,12 +256,16 @@ namespace worker_pool {
                     return;
                 case WorkItem::State::Unstarted: {
                     // Waiting for an item that hasn't begun to be executed yet.
+                    FAIL_IF_WAITING_WILL_DEADLOCK(workItem);
                     if (!allowWorkOffPoolThreads && threadOwningPool != this) {
+                        PUSH_WAITING_FOR;
                         workItem.future.wait();
+                        POP_WAITING_FOR;
                         return;
                     }
                     // Execute it synchronously.
-                    bool doExecute = false; {
+                    bool doExecute = false;
+                    {
                         std::lock_guard lock(unstartedMutex);
                         if (workItem.trySetExecuting()) {
                             unstarted.erase(workItem.thisIterator);
@@ -229,24 +273,21 @@ namespace worker_pool {
                         }
                     }
                     if (doExecute) {
+                        PUSH_WAITING_FOR;
                         workItem.execute();
+                        POP_WAITING_FOR;
                         return;
                     }
                     continue; // retry wait on this item.
                 }
                 case WorkItem::State::Executing: {
                     // Waiting for an item that's currently being executed.
-                    failIfWaitingWillDeadlock(workItem);
-                    WorkItem* oldWaitingFor = nullptr;
-                    if (executingWorkItem) {
-                        oldWaitingFor = executingWorkItem->waitingFor;
-                        executingWorkItem->waitingFor = &workItem;
-                    }
+                    FAIL_IF_WAITING_WILL_DEADLOCK(workItem);
+                    PUSH_WAITING_FOR;
                     maybeAddThreadBeforeWait(workItem);
                     // Block this thread.
                     workItem.future.wait();
-                    if (executingWorkItem)
-                        executingWorkItem->waitingFor = oldWaitingFor;
+                    POP_WAITING_FOR;
                     return;
                 }
             }

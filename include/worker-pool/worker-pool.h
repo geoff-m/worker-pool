@@ -17,6 +17,10 @@
 #include <cstdio>
 #endif
 
+#if defined(WORKER_POOL_DEADLOCK_DETECTION_STRICT) && !defined(WORKER_POOL_DEADLOCK_DETECTION)
+#define WORKER_POOL_DEADLOCK_DETECTION
+#endif
+
 template<typename TCallback, typename... TArgs>
 concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                  requires(TCallback&& callback, TArgs&&... args)
@@ -92,7 +96,10 @@ namespace worker_pool {
 
             [[nodiscard]] TIterator getIterator() const;
 
+#if defined(WORKER_POOL_DEADLOCK_DETECTION) || defined(WORKER_POOL_DEADLOCK_DETECTION_STRICT)
+            std::mutex waitingForMutex;
             WorkItem* waitingFor = nullptr;
+#endif
         };
 
         template<typename T>
@@ -417,11 +424,20 @@ namespace worker_pool {
         }
 
     private:
-
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
         static thread_local WorkItem* executingWorkItem;
-
-        static void failIfWaitingMayDeadlock(const WorkItem& toAwait);
-        static void failIfWaitingWillDeadlock(const WorkItem& toAwait);
+        static void checkDeadlock(WorkItem& toAwait);
+        [[nodiscard]] static std::string formatWaitChain(const WorkItem& wi);
+#define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait) checkDeadlock(toAwait)
+#ifdef WORKER_POOL_DEADLOCK_DETECTION_STRICT
+#define FAIL_IF_WAITING_MAY_DEADLOCK(toAwait) checkDeadlock(toAwait)
+#else
+#define FAIL_IF_WAITING_MAY_DEADLOCK(toAwait)
+#endif
+#else
+#define FAIL_IF_WAITING_MAY_DEADLOCK(toAwait)
+#define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait)
+#endif
     };
 
     /**
@@ -508,6 +524,7 @@ namespace worker_pool {
          * Rethrows whatever exception the asynchronous operation threw, if any.
          */
         void get() {
+            wait();
             (void) wi->getResult();
         }
 
@@ -628,7 +645,8 @@ namespace worker_pool {
                         }
                         if (item->trySetExecuting()) {
                             // This item was unstarted and now we can execute it synchronously.
-                            auto itemValue = item; {
+                            auto itemValue = item;
+                            {
                                 std::lock_guard lock(taskPool.unstartedMutex);
                                 taskPool.unstarted.erase(item->thisIterator);
                             }

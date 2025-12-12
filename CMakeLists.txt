@@ -32,10 +32,10 @@ string(TOLOWER ${WORKER_POOL_DEADLOCK_DETECTION_LEVEL} WORKER_POOL_DEADLOCK_DETE
 string(TOLOWER ${WORKER_POOL_DEADLOCK_DETECTION_ACTION} WORKER_POOL_DEADLOCK_DETECTION_ACTION)
 
 if (${WORKER_POOL_DEADLOCK_DETECTION_LEVEL}> STREQUAL "lenient")
-    target_compile_definitions(worker-pool PRIVATE
+    target_compile_definitions(worker-pool PUBLIC
             WORKER_POOL_DEADLOCK_DETECTION)
 elseif (${WORKER_POOL_DEADLOCK_DETECTION_LEVEL} STREQUAL "strict")
-    target_compile_definitions(worker-pool PRIVATE
+    target_compile_definitions(worker-pool PUBLIC
             WORKER_POOL_DEADLOCK_DETECTION
             WORKER_POOL_DEADLOCK_DETECTION_STRICT)
 endif ()
@@ -43,19 +43,6 @@ if (${WORKER_POOL_DEADLOCK_DETECTION_ACTION} STREQUAL "abort")
     target_compile_definitions(worker-pool PRIVATE
             WORKER_POOL_DEADLOCK_DETECTION_ABORT)
 endif ()
-
-#include(CMakeDependentOption)
-#option(WORKER_POOL_DEADLOCK_DETECTION "Attempt to detect deadlocks caused by misuse of waits" ON)
-#cmake_dependent_option(WORKER_POOL_DEADLOCK_DETECTION_STRICT "Detect more potential deadlocks"
-#        ON WORKER_POOL_DEADLOCK_DETECTION OFF)
-#if (WORKER_POOL_DEADLOCK_DETECTION_STRICT)
-#    target_compile_definitions(worker-pool PRIVATE
-#            WORKER_POOL_DEADLOCK_DETECTION
-#            WORKER_POOL_DEADLOCK_DETECTION_STRICT)
-#elseif (WORKER_POOL_DEADLOCK_DETECTION)
-#    target_compile_definitions(worker-pool PRIVATE
-#            WORKER_POOL_DEADLOCK_DETECTION)
-#endif()
 
 option(WORKER_POOL_TEST "Enable unit tests" OFF)
 if (WORKER_POOL_TEST)
