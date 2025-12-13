@@ -17,6 +17,10 @@
 #include <cstdio>
 #endif
 
+#if defined(WORKER_POOL_DEADLOCK_DETECTION_STRICT) && !defined(WORKER_POOL_DEADLOCK_DETECTION)
+#define WORKER_POOL_DEADLOCK_DETECTION
+#endif
+
 template<typename TCallback, typename... TArgs>
 concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                  requires(TCallback&& callback, TArgs&&... args)
@@ -29,6 +33,15 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
 
 namespace worker_pool {
     void log([[maybe_unused]] const char* format...);
+
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
+    class deadlock_exception : public std::runtime_error {
+    public:
+        explicit deadlock_exception(const std::string& message)
+            : runtime_error(message) {
+        }
+    };
+#endif
 
     class pool;
     inline thread_local pool* threadOwningPool;
@@ -91,6 +104,11 @@ namespace worker_pool {
             [[nodiscard]] std::string getName() const;
 
             [[nodiscard]] TIterator getIterator() const;
+
+#if defined(WORKER_POOL_DEADLOCK_DETECTION) || defined(WORKER_POOL_DEADLOCK_DETECTION_STRICT)
+            std::mutex waitingForMutex;
+            WorkItem* waitingFor = nullptr;
+#endif
         };
 
         template<typename T>
@@ -240,32 +258,32 @@ namespace worker_pool {
 
         void work();
 
-        void wait(WorkItem& workItem);
+        void wait(std::shared_ptr<WorkItem> workItem);
 
         void maybeAddThreadBeforeWait(const WorkItem& workItem);
 
         template<class Rep, class Period>
-        bool wait_for(WorkItem& workItem, const std::chrono::duration<Rep, Period>& timeout_duration) {
+        bool wait_for(std::shared_ptr<WorkItem> workItem, const std::chrono::duration<Rep, Period>& timeout_duration) {
             return wait_until(workItem, std::chrono::steady_clock::now() + timeout_duration);
         }
 
         template<class Clock, class Duration>
-        bool wait_until(WorkItem& workItem, const std::chrono::time_point<Clock, Duration>& timeout_time) {
-            auto state = workItem.state.load(std::memory_order::acquire);
+        bool wait_until(std::shared_ptr<WorkItem> workItem, const std::chrono::time_point<Clock, Duration>& timeout_time) {
+            auto state = workItem->state.load(std::memory_order::acquire);
             log("Timed wait for task %s (task is %s)",
-                workItem.getName().c_str(), WorkItem::workItemStateToString(state));
+                workItem->getName().c_str(), WorkItem::workItemStateToString(state));
             switch (state) {
                 case WorkItem::State::Done:
                     return true;
                 default:
                     // Waiting for an item that's currently being executed.
-                    maybeAddThreadBeforeWait(workItem);
+                    maybeAddThreadBeforeWait(*workItem);
                     // Block this thread.
-                    const auto status = workItem.future.wait_until(timeout_time);
+                    const auto status = workItem->future.wait_until(timeout_time);
 
                     log("Done with timed wait for %s (task is %s)",
-                        workItem.getName().c_str(),
-                        WorkItem::workItemStateToString(workItem.state.load(std::memory_order::acquire))
+                        workItem->getName().c_str(),
+                        WorkItem::workItemStateToString(workItem->state.load(std::memory_order::acquire))
                     );
                     return status == std::future_status::ready;
             }
@@ -325,7 +343,7 @@ namespace worker_pool {
          */
         template<typename TResult, class Rep, class Period>
         static bool wait_all_for(task<TResult>* tasks, size_t count,
-                          const std::chrono::duration<Rep, Period>& timeout_duration) {
+                                 const std::chrono::duration<Rep, Period>& timeout_duration) {
             return wait_all_for(tasks, tasks + count, timeout_duration);
         }
 
@@ -339,7 +357,7 @@ namespace worker_pool {
          */
         template<typename TResult, class Clock, class Duration>
         static bool wait_all_until(task<TResult>* tasks, size_t count,
-                            const std::chrono::time_point<Clock, Duration>& timeout_time) {
+                                   const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return wait_all_until(tasks, tasks + count, timeout_time);
         }
 
@@ -362,7 +380,7 @@ namespace worker_pool {
          */
         template<typename TaskIterator, class Rep, class Period>
         static bool wait_all_for(TaskIterator begin, TaskIterator end,
-                          const std::chrono::duration<Rep, Period>& timeout_duration) {
+                                 const std::chrono::duration<Rep, Period>& timeout_duration) {
             return naive_wait_all_for(begin, end, timeout_duration);
         }
 
@@ -376,7 +394,7 @@ namespace worker_pool {
          */
         template<typename TaskIterator, class Clock, class Duration>
         static bool wait_all_for(TaskIterator begin, TaskIterator end,
-                          const std::chrono::time_point<Clock, Duration>& timeout_time) {
+                                 const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return naive_wait_all_until(begin, end, timeout_time);
         }
 
@@ -413,6 +431,22 @@ namespace worker_pool {
         static bool wait_all_until(IterableTasks tasks, const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return naive_wait_all_until(tasks.begin(), tasks.end(), timeout_time);
         }
+
+    private:
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
+        static thread_local WorkItem* executingWorkItem;
+        static void checkDeadlock(WorkItem& toAwait);
+        [[nodiscard]] static std::string formatWaitChain(const WorkItem& wi);
+#define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait) checkDeadlock(toAwait)
+#ifdef WORKER_POOL_DEADLOCK_DETECTION_STRICT
+#define FAIL_IF_WAITING_MAY_DEADLOCK(toAwait) checkDeadlock(toAwait)
+#else
+#define FAIL_IF_WAITING_MAY_DEADLOCK(toAwait)
+#endif
+#else
+#define FAIL_IF_WAITING_MAY_DEADLOCK(toAwait)
+#define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait)
+#endif
     };
 
     /**
@@ -435,7 +469,7 @@ namespace worker_pool {
          * @return The result returned from this task.
          */
         void wait() {
-            wi->getOwningPool().wait(*wi);
+            wi->getOwningPool().wait(wi);
         }
 
         /**
@@ -445,7 +479,7 @@ namespace worker_pool {
          */
         template<class Rep, class Period>
         bool wait_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return wi->getOwningPool().wait_for(*wi, timeout_duration);
+            return wi->getOwningPool().wait_for(wi, timeout_duration);
         }
 
         /**
@@ -455,7 +489,7 @@ namespace worker_pool {
          */
         template<class Clock, class Duration>
         bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
-            return wi->getOwningPool().wait_until(*wi, timeout_time);
+            return wi->getOwningPool().wait_until(wi, timeout_time);
         }
 
         /**
@@ -499,6 +533,7 @@ namespace worker_pool {
          * Rethrows whatever exception the asynchronous operation threw, if any.
          */
         void get() {
+            wait();
             (void) wi->getResult();
         }
 
@@ -506,7 +541,7 @@ namespace worker_pool {
          * Blocks until this task is complete.
          */
         void wait() {
-            wi->getOwningPool().wait(*wi);
+            wi->getOwningPool().wait(wi);
         }
 
         /**
@@ -516,7 +551,7 @@ namespace worker_pool {
          */
         template<class Rep, class Period>
         bool wait_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return wi->getOwningPool().wait_for(*wi, timeout_duration);
+            return wi->getOwningPool().wait_for(wi, timeout_duration);
         }
 
         /**
@@ -526,7 +561,7 @@ namespace worker_pool {
          */
         template<class Clock, class Duration>
         bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
-            return wi->getOwningPool().wait_until(*wi, timeout_time);
+            return wi->getOwningPool().wait_until(wi, timeout_time);
         }
 
         [[nodiscard]] std::string get_name() const {
