@@ -268,25 +268,23 @@ namespace worker_pool {
         }
 
         template<class Clock, class Duration>
-        bool wait_until(std::shared_ptr<WorkItem> workItem, const std::chrono::time_point<Clock, Duration>& timeout_time) {
+        bool wait_until(std::shared_ptr<WorkItem> workItem,
+                        const std::chrono::time_point<Clock, Duration>& timeout_time) {
             auto state = workItem->state.load(std::memory_order::acquire);
             log("Timed wait for task %s (task is %s)",
                 workItem->getName().c_str(), WorkItem::workItemStateToString(state));
-            switch (state) {
-                case WorkItem::State::Done:
-                    return true;
-                default:
-                    // Waiting for an item that's currently being executed.
-                    maybeAddThreadBeforeWait(*workItem);
-                    // Block this thread.
-                    const auto status = workItem->future.wait_until(timeout_time);
+            if (state == WorkItem::State::Done)
+                return true;
 
-                    log("Done with timed wait for %s (task is %s)",
-                        workItem->getName().c_str(),
-                        WorkItem::workItemStateToString(workItem->state.load(std::memory_order::acquire))
-                    );
-                    return status == std::future_status::ready;
-            }
+            maybeAddThreadBeforeWait(*workItem);
+            // Block this thread.
+            const auto status = workItem->future.wait_until(timeout_time);
+
+            log("Done with timed wait for %s (task is %s)",
+                workItem->getName().c_str(),
+                WorkItem::workItemStateToString(workItem->state.load(std::memory_order::acquire))
+            );
+            return status == std::future_status::ready;
         }
 
         template<typename TaskIterator>
@@ -435,8 +433,11 @@ namespace worker_pool {
     private:
 #ifdef WORKER_POOL_DEADLOCK_DETECTION
         static thread_local WorkItem* executingWorkItem;
+
         static void checkDeadlock(WorkItem& toAwait);
+
         [[nodiscard]] static std::string formatWaitChain(const WorkItem& wi);
+
 #define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait) checkDeadlock(toAwait)
 #ifdef WORKER_POOL_DEADLOCK_DETECTION_STRICT
 #define FAIL_IF_WAITING_MAY_DEADLOCK(toAwait) checkDeadlock(toAwait)
