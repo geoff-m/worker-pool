@@ -26,11 +26,6 @@ jobs:
         with:
           context: .
           file: docker/tests.dockerfile
-          cache-from: type=local,src=/tmp/buildx-cache
-          cache-to: type=local,dest=/tmp/buildx-cache,mode=max
           outputs: type=cacheonly
           build-args: |
             CMAKE_BUILD_TYPE=${{matrix.cmake-build-type}}
-      # https://github.com/docker/build-push-action/issues/252
-      - name: Trim cache to size
-        run: bash .github/scripts/delete-oldest-until-size.sh /tmp/buildx-cache 25000000000
