@@ -283,8 +283,10 @@ auto t1 = pool.add("t1", [&] {
     /* Not shown: Wait until pt2 is nonnull */
 
     pt2->wait();
-    // The above wait call would deadlock.
-    // Instead, by default, it will throw an exception.
+    // The above call would deadlock.
+    // If this code is built with WORKER_POOL_DEADLOCK_DETECTION_LEVEL=Strict,
+    // and WORKER_POOL_DEADLOCK_DETECTION_ACTION=Throw,
+    // the call will throw an exception instead.
     // This task doesn't catch the exception,
     // so like any exception, it gets stored
     // and rethrown when someone tries to get the result of this task.
@@ -302,10 +304,14 @@ try {
 }
 ```
 
-If you build the above code with CMake option `WORKER_POOL_DEADLOCK_DETECTION_LEVEL` = `Strict`,
-running it will print something like
-`Error: The requested wait would deadlock: t1 would wait for itself via: t2 -> t1`.
-If you added the CMake option `WORKER_POOL_DEADLOCK_DETECTION_ACTION` = `Abort`,
+With the aforementioned CMake options set, the above code will print something like
+```
+Error: The requested wait would deadlock: t1 would wait for itself via: t2 -> t1.
+```
+This message means that t2 was waiting for t1
+at the time when t1 tried to start waiting for t2.
+
+If you set `WORKER_POOL_DEADLOCK_DETECTION_ACTION` = `Abort`,
 then `pt2->wait()` would call `std::abort()` instead of throwing.
 
 `WORKER_POOL_DEADLOCK_DETECTION_LEVEL` = `Lenient` will still detect some deadlocks but
@@ -313,7 +319,7 @@ ignore some near-misses. We recommend using `Strict` instead.
 
 Note that deadlock detection applies only to WorkerPool's untimed wait functions
 and does not attempt to find or prevent other kinds of deadlocks that may exist in your program.
-Also, it only detects deadlocks right before they happen, not at any other time.
+Also, it detects deadlocks only right before they happen, not at any other time.
 
 ### More examples
 
