@@ -4,34 +4,62 @@
 
 using namespace worker_pool;
 
-void requireDeadlockDetection() {
 #ifndef WORKER_POOL_DEADLOCK_DETECTION
-    GTEST_SKIP() << "Don't have deadlock detection";
+#define REQUIRE_DEADLOCK_DETECTION do { GTEST_SKIP() << "Don't have deadlock detection"; } while (0)
+#else
+#define REQUIRE_DEADLOCK_DETECTION
 #endif
-}
-
-
-void requireStrictDeadlockDetection() {
-#ifndef WORKER_POOL_DEADLOCK_DETECTION_STRICT
-    GTEST_SKIP() << "Don't have strict deadlock detection";
-#endif
-}
 
 TEST(Deadlock, Simple) {
-    requireDeadlockDetection();
+    REQUIRE_DEADLOCK_DETECTION;
     pool pool(2, 0, false);
+    std::mutex mutex;
+    std::condition_variable taskStarted;
+    std::atomic<task<void>*> pt2 = nullptr;
+    auto t1 = pool.add("t1", [&] {
+        std::unique_lock lock(mutex);
+        taskStarted.wait(lock);
+        task<void>* loaded;
+        while (nullptr == (loaded = pt2.load(std::memory_order::acquire))) {
+            std::this_thread::yield();
+        }
+        loaded->wait();
+    });
+    auto t2 = pool.add("t2", [&] {
+        taskStarted.notify_one();
+        t1.wait();
+    });
+    pt2.store(&t2, std::memory_order::release);
+    t1.wait();
+    t2.get();
+    EXPECT_THROW(t1.get(), deadlock_exception);
+}
+
+TEST(Deadlock, Two) {
+    REQUIRE_DEADLOCK_DETECTION;
+    pool pool(3, 0, false);
     task<void>* pt2 = nullptr;
+    task<void>* pt3 = nullptr;
     auto t1 = pool.add("t1", [&] {
         do
             sleepMs(100);
         while (!pt2);
         pt2->wait();
     });
-    auto t2 = pool.add("t2", [&] { t1.wait(); });
+    auto t2 = pool.add("t2", [&] {
+        do
+            sleepMs(100);
+        while (!pt3);
+        pt3->wait();
+    });
     pt2 = &t2;
-    t1.wait();
-    t2.get();
-    EXPECT_ANY_THROW(t1.get());
+    auto t3 = pool.add("t3", [&] { t1.wait(); });
+    pt3 = &t3;
+    EXPECT_THROW({
+        t1.get();
+        t2.get();
+        t3.get();
+        }, deadlock_exception);
 }
 
 class WaitCycle {
@@ -77,69 +105,45 @@ public:
     }
 };
 
-TEST(Deadlock, Two) {
-    requireDeadlockDetection();
-    pool pool(3, 0, false);
-    task<void>* pt2 = nullptr;
-    task<void>* pt3 = nullptr;
-    auto t1 = pool.add("t1", [&] {
-        do
-            sleepMs(100);
-        while (!pt2);
-        pt2->wait();
-    });
-    auto t2 = pool.add("t2", [&] {
-        do
-            sleepMs(100);
-        while (!pt3);
-        pt3->wait();
-    });
-    pt2 = &t2;
-    auto t3 = pool.add("t3", [&] { t1.wait(); });
-    pt3 = &t3;
-    EXPECT_ANY_THROW({
-        t1.get();
-        t2.get();
-        t3.get();
-        });
-}
-
 TEST(Deadlock, Cycle1) {
-    requireDeadlockDetection();
+    REQUIRE_DEADLOCK_DETECTION;
     pool pool(1, 0, false);
     WaitCycle cycle(pool, 1);
     auto first = cycle.getFirst();
-    EXPECT_ANY_THROW(first->get());
+    EXPECT_THROW(first->get(), deadlock_exception);
 }
 
 TEST(Deadlock, Cycle2) {
-    requireDeadlockDetection();
+    REQUIRE_DEADLOCK_DETECTION;
     pool pool(2, 0, false);
     WaitCycle cycle(pool, 2);
     auto first = cycle.getFirst();
-    EXPECT_ANY_THROW(first->get());
+    EXPECT_THROW(first->get(), deadlock_exception);
+
 }
 
 TEST(Deadlock, Cycle3) {
-    requireDeadlockDetection();
+    REQUIRE_DEADLOCK_DETECTION;
     pool pool(3, 0, false);
     WaitCycle cycle(pool, 3);
     auto first = cycle.getFirst();
-    EXPECT_ANY_THROW(first->get());
+    EXPECT_THROW(first->get(), deadlock_exception);
+
 }
 
 TEST(Deadlock, Cycle4) {
-    requireDeadlockDetection();
+    REQUIRE_DEADLOCK_DETECTION;
     pool pool(4, 0, false);
     WaitCycle cycle(pool, 4);
     auto first = cycle.getFirst();
-    EXPECT_ANY_THROW(first->get());
+    EXPECT_THROW(first->get(), deadlock_exception);
+
 }
 
 TEST(Deadlock, Cycle40) {
-    requireDeadlockDetection();
+    REQUIRE_DEADLOCK_DETECTION;
     pool pool(4, 0, false);
     WaitCycle cycle(pool, 40);
     auto first = cycle.getFirst();
-    EXPECT_ANY_THROW(first->get());
+    EXPECT_THROW(first->get(), deadlock_exception);
 }

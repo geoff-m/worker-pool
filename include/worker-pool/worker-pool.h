@@ -34,6 +34,15 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
 namespace worker_pool {
     void log([[maybe_unused]] const char* format...);
 
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
+    class deadlock_exception : public std::runtime_error {
+    public:
+        explicit deadlock_exception(const std::string& message)
+            : runtime_error(message) {
+        }
+    };
+#endif
+
     class pool;
     inline thread_local pool* threadOwningPool;
 

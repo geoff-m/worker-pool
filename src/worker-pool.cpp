@@ -80,16 +80,15 @@ namespace worker_pool {
             log("%s is waiting for %s", waitingFor->name.c_str(),
                 waitingForNext ? waitingForNext->name.c_str() : "nothing");
             if (waitingFor == executingWorkItem) {
-                log("Deadlock detected: %s would wait for itself via %s",
-                    executingWorkItem->getName().c_str(),
-                    formatWaitChain(toAwait).c_str());
 #ifdef WORKER_POOL_DEADLOCK_DETECTION_ABORT
                 std::abort();
 #else
-                throw std::runtime_error("The requested operation would deadlock");
+                std::string msg = "The requested wait would deadlock: ";
+                msg += executingWorkItem->getName();
+                msg += " would wait for itself via ";
+                msg += formatWaitChain(toAwait);
+                throw deadlock_exception(msg);
 #endif
-            } else {
-                log("%s != %s", executingWorkItem->getName().c_str(), waitingFor->getName().c_str());
             }
 
             waitingFor = waitingForNext;
@@ -241,12 +240,14 @@ deadlockCheckLock.unlock(); \
 #endif
 
     void pool::wait(std::shared_ptr<WorkItem> workItem) {
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
         std::unique_lock deadlockCheckLock(deadlockCheckMutex, std::defer_lock);
         WorkItem* oldWaitingFor = nullptr;
         if (executingWorkItem) {
             deadlockCheckLock.lock();
             FAIL_IF_WAITING_MAY_DEADLOCK(*workItem);
         }
+#endif
 
         // retry loop
         while (true) {
