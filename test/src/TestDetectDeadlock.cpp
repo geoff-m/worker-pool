@@ -147,3 +147,43 @@ TEST(Deadlock, Cycle40) {
     auto first = cycle.getFirst();
     EXPECT_THROW(first->get(), deadlock_exception);
 }
+
+TEST(Deadlock, Cycle80) {
+    REQUIRE_DEADLOCK_DETECTION;
+    pool pool(4, 0, false);
+    WaitCycle cycle(pool, 80);
+    auto first = cycle.getFirst();
+    EXPECT_THROW(first->get(), deadlock_exception);
+}
+
+TEST(Deadlock, Cycle160) {
+    REQUIRE_DEADLOCK_DETECTION;
+    pool pool(4, 0, false);
+    WaitCycle cycle(pool, 160);
+    auto first = cycle.getFirst();
+    EXPECT_THROW(first->get(), deadlock_exception);
+}
+
+TEST(Deadlock, Cycle320) {
+    REQUIRE_DEADLOCK_DETECTION;
+    pool pool(4, 0, false);
+    WaitCycle cycle(pool, 320);
+    auto first = cycle.getFirst();
+    EXPECT_THROW(first->get(), deadlock_exception);
+}
+
+TEST(Deadlock, Cycle640) {
+    REQUIRE_DEADLOCK_DETECTION;
+    pool pool(16, 0, false);
+    WaitCycle cycle(pool, 640);
+    auto first = cycle.getFirst();
+    EXPECT_THROW(first->get(), deadlock_exception);
+}
+
+TEST(Deadlock, Cycle1280) {
+    REQUIRE_DEADLOCK_DETECTION;
+    pool pool(16, 0, false);
+    WaitCycle cycle(pool, 1280);
+    auto first = cycle.getFirst();
+    EXPECT_THROW(first->get(), deadlock_exception);
+}
