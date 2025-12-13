@@ -38,12 +38,12 @@ class WaitCycle {
     std::mutex mutex;
     std::condition_variable taskStarted;
     std::atomic<int> startNext = 0;
-    std::vector<task<void>> tasks;
+    std::vector<std::shared_ptr<task<void>>> tasks;
     int length;
 
-    task<void> makeWaiter(pool& pool, int index) {
+    std::shared_ptr<task<void>> makeWaiter(pool& pool, int index) {
         const auto name = std::string("t") + std::to_string(index);
-        return pool.add(name, [&, index, name] {
+        return std::make_shared<task<void>>(pool.add(name, [&, index, name] {
             std::unique_lock lock(mutex);
             taskStarted.wait(lock, [&, index] {
                 if (tasks.size() != static_cast<size_t>(length))
@@ -55,9 +55,9 @@ class WaitCycle {
             lock.unlock();
             taskStarted.notify_all();
             int toAwaitIdx = (index + 1) % length;
-            auto& toAwait = tasks[toAwaitIdx];
-            toAwait.get();
-        });
+            auto toAwait = tasks[toAwaitIdx];
+            toAwait->get();
+        }));
     }
 
 public:
@@ -72,7 +72,7 @@ public:
         taskStarted.notify_all();
     }
 
-    task<void>& getFirst() {
+    std::shared_ptr<task<void>> getFirst() {
         return tasks.front();
     }
 };
@@ -108,38 +108,38 @@ TEST(Deadlock, Cycle1) {
     requireDeadlockDetection();
     pool pool(1, 0, false);
     WaitCycle cycle(pool, 1);
-    auto& first = cycle.getFirst();
-    EXPECT_ANY_THROW(first.get());
+    auto first = cycle.getFirst();
+    EXPECT_ANY_THROW(first->get());
 }
 
 TEST(Deadlock, Cycle2) {
     requireDeadlockDetection();
     pool pool(2, 0, false);
     WaitCycle cycle(pool, 2);
-    auto& first = cycle.getFirst();
-    EXPECT_ANY_THROW(first.get());
+    auto first = cycle.getFirst();
+    EXPECT_ANY_THROW(first->get());
 }
 
 TEST(Deadlock, Cycle3) {
     requireDeadlockDetection();
     pool pool(3, 0, false);
     WaitCycle cycle(pool, 3);
-    auto& first = cycle.getFirst();
-    EXPECT_ANY_THROW(first.get());
+    auto first = cycle.getFirst();
+    EXPECT_ANY_THROW(first->get());
 }
 
 TEST(Deadlock, Cycle4) {
     requireDeadlockDetection();
     pool pool(4, 0, false);
     WaitCycle cycle(pool, 4);
-    auto& first = cycle.getFirst();
-    EXPECT_ANY_THROW(first.get());
+    auto first = cycle.getFirst();
+    EXPECT_ANY_THROW(first->get());
 }
 
 TEST(Deadlock, Cycle40) {
     requireDeadlockDetection();
     pool pool(4, 0, false);
     WaitCycle cycle(pool, 40);
-    auto& first = cycle.getFirst();
-    EXPECT_ANY_THROW(first.get());
+    auto first = cycle.getFirst();
+    EXPECT_ANY_THROW(first->get());
 }

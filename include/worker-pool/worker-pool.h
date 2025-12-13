@@ -249,32 +249,32 @@ namespace worker_pool {
 
         void work();
 
-        void wait(WorkItem& workItem);
+        void wait(std::shared_ptr<WorkItem> workItem);
 
         void maybeAddThreadBeforeWait(const WorkItem& workItem);
 
         template<class Rep, class Period>
-        bool wait_for(WorkItem& workItem, const std::chrono::duration<Rep, Period>& timeout_duration) {
+        bool wait_for(std::shared_ptr<WorkItem> workItem, const std::chrono::duration<Rep, Period>& timeout_duration) {
             return wait_until(workItem, std::chrono::steady_clock::now() + timeout_duration);
         }
 
         template<class Clock, class Duration>
-        bool wait_until(WorkItem& workItem, const std::chrono::time_point<Clock, Duration>& timeout_time) {
-            auto state = workItem.state.load(std::memory_order::acquire);
+        bool wait_until(std::shared_ptr<WorkItem> workItem, const std::chrono::time_point<Clock, Duration>& timeout_time) {
+            auto state = workItem->state.load(std::memory_order::acquire);
             log("Timed wait for task %s (task is %s)",
-                workItem.getName().c_str(), WorkItem::workItemStateToString(state));
+                workItem->getName().c_str(), WorkItem::workItemStateToString(state));
             switch (state) {
                 case WorkItem::State::Done:
                     return true;
                 default:
                     // Waiting for an item that's currently being executed.
-                    maybeAddThreadBeforeWait(workItem);
+                    maybeAddThreadBeforeWait(*workItem);
                     // Block this thread.
-                    const auto status = workItem.future.wait_until(timeout_time);
+                    const auto status = workItem->future.wait_until(timeout_time);
 
                     log("Done with timed wait for %s (task is %s)",
-                        workItem.getName().c_str(),
-                        WorkItem::workItemStateToString(workItem.state.load(std::memory_order::acquire))
+                        workItem->getName().c_str(),
+                        WorkItem::workItemStateToString(workItem->state.load(std::memory_order::acquire))
                     );
                     return status == std::future_status::ready;
             }
@@ -460,7 +460,7 @@ namespace worker_pool {
          * @return The result returned from this task.
          */
         void wait() {
-            wi->getOwningPool().wait(*wi);
+            wi->getOwningPool().wait(wi);
         }
 
         /**
@@ -470,7 +470,7 @@ namespace worker_pool {
          */
         template<class Rep, class Period>
         bool wait_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return wi->getOwningPool().wait_for(*wi, timeout_duration);
+            return wi->getOwningPool().wait_for(wi, timeout_duration);
         }
 
         /**
@@ -480,7 +480,7 @@ namespace worker_pool {
          */
         template<class Clock, class Duration>
         bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
-            return wi->getOwningPool().wait_until(*wi, timeout_time);
+            return wi->getOwningPool().wait_until(wi, timeout_time);
         }
 
         /**
@@ -532,7 +532,7 @@ namespace worker_pool {
          * Blocks until this task is complete.
          */
         void wait() {
-            wi->getOwningPool().wait(*wi);
+            wi->getOwningPool().wait(wi);
         }
 
         /**
@@ -542,7 +542,7 @@ namespace worker_pool {
          */
         template<class Rep, class Period>
         bool wait_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return wi->getOwningPool().wait_for(*wi, timeout_duration);
+            return wi->getOwningPool().wait_for(wi, timeout_duration);
         }
 
         /**
@@ -552,7 +552,7 @@ namespace worker_pool {
          */
         template<class Clock, class Duration>
         bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
-            return wi->getOwningPool().wait_until(*wi, timeout_time);
+            return wi->getOwningPool().wait_until(wi, timeout_time);
         }
 
         [[nodiscard]] std::string get_name() const {
