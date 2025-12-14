@@ -215,8 +215,8 @@ namespace worker_pool {
             log("%s is waiting for %s", waitingFor->name.c_str(),
                 waitingForNext ? waitingForNext->name.c_str() : "nothing");
             if (waitingFor == executingWorkItem) {
-#ifdef WORKER_POOL_DEADLOCK_DETECTION_ABORT
-                std::abort();
+#ifdef WORKER_POOL_DEADLOCK_DETECTION_TERMINATE
+                std::terminate();
 #else
                 std::string msg = "The requested wait would deadlock: ";
                 msg += executingWorkItem->getName();
