@@ -43,33 +43,32 @@ TEST(Deadlock, SimpleThrow) {
                  }, deadlock_exception);
 }
 
-TEST(Deadlock, SimpleAbort) {
+TEST(Deadlock, SimpleFatal) {
     REQUIRE_DEADLOCK_FATAL;
     EXPECT_DEATH({
-                pool pool(2, 0, false);
-                std::mutex mutex;
-                std::condition_variable taskStarted;
-                std::atomic<task<void>*> pt2 = nullptr;
-                auto t1 = pool.add("t1", [&] {
-                    std::unique_lock lock(mutex);
-                    taskStarted.wait(lock);
-                    task<void>* loaded;
-                    while (nullptr == (loaded = pt2.load(std::memory_order::acquire))) {
-                    std::this_thread::yield();
-                    }
-                    loaded->wait();
-                    });
-                auto t2 = pool.add("t2", [&] {
-                    taskStarted.notify_one();
-                    t1.wait();
-                    });
-                pt2.store(&t2, std::memory_order::release);
-                t1.wait();
-                t1.get();
-                t2.get();
-                }, ".*");
+                 pool pool(2, 0, false);
+                 std::mutex mutex;
+                 std::condition_variable taskStarted;
+                 std::atomic<task<void>*> pt2 = nullptr;
+                 auto t1 = pool.add("t1", [&] {
+                     std::unique_lock lock(mutex);
+                     taskStarted.wait(lock);
+                     task<void>* loaded;
+                     while (nullptr == (loaded = pt2.load(std::memory_order::acquire))) {
+                     std::this_thread::yield();
+                     }
+                     loaded->wait();
+                     });
+                 auto t2 = pool.add("t2", [&] {
+                     taskStarted.notify_one();
+                     t1.wait();
+                     });
+                 pt2.store(&t2, std::memory_order::release);
+                 t1.wait();
+                 t1.get();
+                 t2.get();
+                 }, ".*");
 }
-
 
 TEST(Deadlock, Two) {
     REQUIRE_DEADLOCK_THROW;
@@ -149,12 +148,30 @@ TEST(Deadlock, Cycle1) {
     EXPECT_THROW(first->get(), deadlock_exception);
 }
 
+TEST(Deadlock, Cycle1Fatal) {
+    REQUIRE_DEADLOCK_FATAL;
+    EXPECT_DEATH({ pool pool(1, 0, false);
+                 WaitCycle cycle(pool, 1);
+                 auto first = cycle.getFirst();
+                 first->get();
+                 }, ".*");
+}
+
 TEST(Deadlock, Cycle2) {
     REQUIRE_DEADLOCK_THROW;
     pool pool(2, 0, false);
     WaitCycle cycle(pool, 2);
     auto first = cycle.getFirst();
     EXPECT_THROW(first->get(), deadlock_exception);
+}
+
+TEST(Deadlock, Cycle2Fatal) {
+    REQUIRE_DEADLOCK_FATAL;
+    EXPECT_DEATH({ pool pool(2, 0, false);
+                 WaitCycle cycle(pool, 2);
+                 auto first = cycle.getFirst();
+                 first->get();
+                 }, ".*");
 }
 
 TEST(Deadlock, Cycle3) {
