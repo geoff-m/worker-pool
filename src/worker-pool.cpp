@@ -1,12 +1,25 @@
 #include "worker-pool/worker-pool.h"
+
+#include <chrono>
 #include <sstream>
 
 #ifdef WORKER_POOL_LOGGING
 #include <cstdarg>
 #include <cstdio>
+#ifdef _WIN32
+#define NOMINMAX
+#include <Windows.h>
+#endif
 #endif
 
 namespace worker_pool {
+    unsigned long long getThreadId() {
+#ifdef _WIN32
+        return GetCurrentThreadId();
+#else
+        return pthread_self();
+#endif
+    }
     void log(const char* format...) {
 #ifdef WORKER_POOL_LOGGING
         va_list args;
@@ -15,9 +28,9 @@ namespace worker_pool {
         buf[sizeof(buf) - 1] = '\0';
         const auto timeNanos = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-        const auto threadKind = worker_pool::threadOwningPool != nullptr ? "pool" : "non-pool";
-        const auto prefixLength = snprintf(buf, sizeof(buf), "%ld %s thread %lu: ",
-                                           timeNanos, threadKind, pthread_self());
+        const auto threadKind = threadOwningPool != nullptr ? "pool" : "non-pool";
+        const auto prefixLength = snprintf(buf, sizeof(buf), "%lld %s thread %llu: ",
+                                           timeNanos, threadKind, getThreadId());
         vsnprintf(buf + prefixLength, sizeof(buf) - prefixLength, format, args);
         puts(buf);
         fflush(stdout);

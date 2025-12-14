@@ -58,7 +58,7 @@ TEST(Exceptions, RuntimeExceptionFromIntTask) {
         throw std::runtime_error(EXPECTED_STRING);
         return 123;
     });
-    sleep(1);
+    sleepMs(1000);
     task.wait();
     assertThrows([&] { (void)task.get(); }, EXPECTED_STRING);
     assertThrows([&] { (void)task.get(); }, EXPECTED_STRING);

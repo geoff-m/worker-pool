@@ -38,8 +38,9 @@ target_link_libraries(test-worker-pool
         PRIVATE worker-pool
         PRIVATE GTest::gtest_main)
 
-target_compile_options(test-worker-pool PRIVATE -Werror -Wall -Wextra -Wpedantic -g)
-target_link_options(test-worker-pool PRIVATE -g)
+target_compile_options(test-worker-pool PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/WX>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Werror -Wall -Wextra -Wpedantic>)
 
 include(GoogleTest)
 gtest_discover_tests(test-worker-pool)
