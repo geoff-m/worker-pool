@@ -13,11 +13,11 @@ TEST(Cancel, CancelNonvoidAtShutdown) {
             task1Started = true;
             cv.notify_one();
         }
-        sleep(1);
+        sleepMs(1000);
         return 1;
     });
     auto t2 = pool.add([] {
-        sleep(1);
+        sleepMs(1000);
         return 2;
     });
     {
@@ -42,10 +42,10 @@ TEST(Cancel, CancelVoidAtShutdown) {
             task1Started = true;
             cv.notify_one();
         }
-        sleep(1);
+        sleepMs(1000);
         return 1;
     });
-    auto t2 = pool.add([] { sleep(1); });
+    auto t2 = pool.add([] { sleepMs(1000); });
     {
         std::unique_lock lock(mutex);
         cv.wait(lock, [&] { return task1Started; });
@@ -60,11 +60,11 @@ TEST(Cancel, CancelVoidAtShutdown) {
 TEST(Cancel, NoCancelAtShutdown) {
     pool pool(1, 0, false);
     auto t1 = pool.add([] {
-        sleep(1);
+        sleepMs(1000);
         return 1;
     });
     auto t2 = pool.add([] {
-        sleep(1);
+        sleepMs(1000);
         return 2;
     });
     pool.shutDown();
@@ -85,12 +85,12 @@ TEST(Cancel, CancelUnstartedVoid) {
                 task1Started = true;
                 cv.notify_one();
             }
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
             return 1;
         });
         auto t2 = pool.add("t2", [&] {
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
         });
         {
@@ -119,7 +119,7 @@ TEST(Cancel, CancelUnstartedNonvoid) {
                 task1Started = true;
                 cv.notify_one();
             }
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
             return 1;
         });
@@ -128,7 +128,7 @@ TEST(Cancel, CancelUnstartedNonvoid) {
             cv.wait(lock, [&] { return task1Started; });
         }
         auto t2 = pool.add("t2", [&] {
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
             return 1;
         });
@@ -154,7 +154,7 @@ TEST(Cancel, CancelNonvoidDuringWait) {
                 task1Started = true;
                 cv.notify_one();
             }
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
             return 1;
         });
@@ -163,7 +163,7 @@ TEST(Cancel, CancelNonvoidDuringWait) {
             cv.wait(lock, [&] { return task1Started; });
         }
         auto t2 = pool.add("t2", [&] {
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
             return 1;
         });
@@ -193,7 +193,7 @@ TEST(Cancel, CancelVoidDuringWait) {
                 task1Started = true;
                 cv.notify_one();
             }
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
             return 1;
         });
@@ -202,7 +202,7 @@ TEST(Cancel, CancelVoidDuringWait) {
             cv.wait(lock, [&] { return task1Started; });
         }
         auto t2 = pool.add("t2", [&] {
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
         });
         auto waitTask = std::async(std::launch::async, [&] {
@@ -233,7 +233,7 @@ TEST(Cancel, CancelNonvoidDuringWaitAll) {
                 task1Started = true;
                 cv.notify_one();
             }
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
             return 1;
         });
@@ -243,7 +243,7 @@ TEST(Cancel, CancelNonvoidDuringWaitAll) {
             cv.wait(lock, [&] { return task1Started; });
         }
         auto t2 = pool.add("t2", [&] {
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
             return 1;
         });
@@ -279,7 +279,7 @@ TEST(Cancel, CancelVoidDuringWaitAll) {
                 task1Started = true;
                 cv.notify_one();
             }
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
         });
         tasks.emplace_back(t1);
@@ -288,7 +288,7 @@ TEST(Cancel, CancelVoidDuringWaitAll) {
             cv.wait(lock, [&] { return task1Started; });
         }
         auto t2 = pool.add("t2", [&] {
-            sleep(1);
+            sleepMs(1000);
             ++tasksDone;
         });
         tasks.emplace_back(t2);

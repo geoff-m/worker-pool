@@ -6,7 +6,7 @@ TEST(Multipool, WaitAllOtherPool) {
     pool p1(1);
     pool p2(1);
     std::vector<task<void>> tasks;
-    tasks.emplace_back(p1.add([] { sleep(1); }));
+    tasks.emplace_back(p1.add([] { sleepMs(1000); }));
     pool::wait_all(tasks);
 }
 
@@ -15,8 +15,8 @@ TEST(Multipool, WaitAllMixOtherPool) {
     pool p2(1, 0, false);
     std::vector<task<void>> tasks;
     const auto startTime = std::chrono::steady_clock::now();
-    tasks.emplace_back(p1.add([] { sleep(1); }));
-    tasks.emplace_back(p2.add([] { sleep(1); }));
+    tasks.emplace_back(p1.add([] { sleepMs(1000); }));
+    tasks.emplace_back(p2.add([] { sleepMs(1000); }));
     pool::wait_all(tasks);
     const auto endTime = std::chrono::steady_clock::now();
     const auto durationMs = duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
@@ -27,7 +27,7 @@ TEST(Multipool, WaitOtherTask) {
     pool p1(1, 0, false);
     pool p2(1, 0, false);
     const auto startTime = std::chrono::steady_clock::now();
-    auto t1 = p1.add([] { sleep(1); });
+    auto t1 = p1.add([] { sleepMs(1000); });
     auto t2 = p2.add([&] { t1.wait(); });
     t2.wait();
     const auto endTime = std::chrono::steady_clock::now();
