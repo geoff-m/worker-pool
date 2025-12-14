@@ -29,8 +29,22 @@ COPY include include
 COPY src src
 COPY test test
 
-# Build
+# Build with deadlock detection off
 WORKDIR $REPO_ROOT/build/
+RUN cmake \
+  -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE \
+  -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_C_COMPILER=clang \
+  -DWORKER_POOL_TEST=ON \
+  -DWORKER_POOL_LOGGING=ON \
+  -DWORKER_POOL_DEADLOCK_DETECTION=OFF \
+  -G Ninja \
+  "$REPO_ROOT" && cmake --build . -j$(nproc)
+
+# Run unit tests
+RUN ctest --parallel $(nproc) --output-on-failure
+
+# Rebuild with deadlock detection on
 RUN cmake \
   -DCMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE \
   -DCMAKE_CXX_COMPILER=clang++ \
