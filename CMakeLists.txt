@@ -15,12 +15,7 @@ if (WORKER_POOL_LOGGING)
     target_compile_definitions(worker-pool PRIVATE WORKER_POOL_LOGGING)
 endif ()
 
-set(WORKER_POOL_DEADLOCK_DETECTION_LEVEL "Disabled" CACHE STRING "Level of sensitivity to potential deadlocks")
-set_property(CACHE WORKER_POOL_DEADLOCK_DETECTION_LEVEL PROPERTY STRINGS
-        Disabled
-        Lenient
-        Strict
-)
+option(WORKER_POOL_DEADLOCK_DETECTION "Whether to detect potential deadlocks" OFF)
 
 set(WORKER_POOL_DEADLOCK_DETECTION_ACTION "Throw" CACHE STRING "How to react to detected deadlocks")
 set_property(CACHE WORKER_POOL_DEADLOCK_DETECTION_ACTION PROPERTY STRINGS
@@ -28,21 +23,17 @@ set_property(CACHE WORKER_POOL_DEADLOCK_DETECTION_ACTION PROPERTY STRINGS
         Abort
 )
 
-string(TOLOWER ${WORKER_POOL_DEADLOCK_DETECTION_LEVEL} WORKER_POOL_DEADLOCK_DETECTION_LEVEL)
 string(TOLOWER ${WORKER_POOL_DEADLOCK_DETECTION_ACTION} WORKER_POOL_DEADLOCK_DETECTION_ACTION)
 
-if (${WORKER_POOL_DEADLOCK_DETECTION_LEVEL}> STREQUAL "lenient")
+if (WORKER_POOL_DEADLOCK_DETECTION)
     target_compile_definitions(worker-pool PUBLIC
             WORKER_POOL_DEADLOCK_DETECTION)
-elseif (${WORKER_POOL_DEADLOCK_DETECTION_LEVEL} STREQUAL "strict")
-    target_compile_definitions(worker-pool PUBLIC
-            WORKER_POOL_DEADLOCK_DETECTION
-            WORKER_POOL_DEADLOCK_DETECTION_STRICT)
+    if (${WORKER_POOL_DEADLOCK_DETECTION_ACTION} STREQUAL "abort")
+        target_compile_definitions(worker-pool PRIVATE
+                WORKER_POOL_DEADLOCK_DETECTION_ABORT)
+    endif ()
 endif ()
-if (${WORKER_POOL_DEADLOCK_DETECTION_ACTION} STREQUAL "abort")
-    target_compile_definitions(worker-pool PRIVATE
-            WORKER_POOL_DEADLOCK_DETECTION_ABORT)
-endif ()
+
 
 option(WORKER_POOL_TEST "Enable unit tests" OFF)
 if (WORKER_POOL_TEST)

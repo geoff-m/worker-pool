@@ -215,22 +215,6 @@ namespace worker_pool {
             waitingFor = waitingForNext;
         }
     }
-
-#define PUSH_WAITING_FOR do { \
-    if (executingWorkItem) { \
-        oldWaitingFor = executingWorkItem->waitingFor; \
-        executingWorkItem->waitingFor = workItem.get(); \
-        log("%s is now awaiting %s", executingWorkItem->getName().c_str(), workItem->getName().c_str()); \
-        deadlockCheckLock.unlock(); \
-    } } while (0)
-#define POP_WAITING_FOR do { if (executingWorkItem) {\
-deadlockCheckLock.lock(); \
-executingWorkItem->waitingFor = oldWaitingFor; \
-deadlockCheckLock.unlock(); \
-} } while (0)
-#else
-#define PUSH_WAITING_FOR
-#define POP_WAITING_FOR
 #endif
 
     void pool::wait(std::shared_ptr<WorkItem> workItem) {
@@ -240,6 +224,21 @@ deadlockCheckLock.unlock(); \
         if (executingWorkItem) {
             deadlockCheckLock.lock();
         }
+#define PUSH_WAITING_FOR do { \
+if (executingWorkItem) { \
+oldWaitingFor = executingWorkItem->waitingFor; \
+executingWorkItem->waitingFor = workItem.get(); \
+log("%s is now awaiting %s", executingWorkItem->getName().c_str(), workItem->getName().c_str()); \
+deadlockCheckLock.unlock(); \
+} } while (0)
+#define POP_WAITING_FOR do { if (executingWorkItem) {\
+deadlockCheckLock.lock(); \
+executingWorkItem->waitingFor = oldWaitingFor; \
+deadlockCheckLock.unlock(); \
+} } while (0)
+#else
+#define PUSH_WAITING_FOR
+#define POP_WAITING_FOR
 #endif
 
         // retry loop
@@ -251,9 +250,7 @@ deadlockCheckLock.unlock(); \
                 default:
                 case WorkItem::State::Done:
                     // Waiting for an item that's already done.
-                    if (executingWorkItem) {
-                        FAIL_IF_WAITING_MAY_DEADLOCK(*workItem);
-                    }
+                    // There's no way this could lead to a deadlock.
                     return;
                 case WorkItem::State::Unstarted: {
                     // Waiting for an item that hasn't begun to be executed yet.
