@@ -280,7 +280,7 @@ task<void>* pt2 = nullptr;
 auto t1 = pool.add("t1", [&] {
     /* Not shown: Wait until pt2 is nonnull */
 
-    // Assume this happens before t2 calls wait.
+    // Assume this happens after t2 calls wait.
     pt2->wait();
     // The above call would deadlock.
     // If this code is built with WORKER_POOL_DEADLOCK_DETECTION=On,
@@ -293,7 +293,7 @@ auto t1 = pool.add("t1", [&] {
 
 auto t2 = pool.add("t2", [&] {
     sleep(1);
-    t1.wait(); // Assume t1 calls wait before this.
+    t1.wait(); // Assume this happens before t1 calls wait.
 });
 pt2 = &t2;
 t1.wait(); // Not an error. t1 threw an exception, but awaiting a failed task is fine.
