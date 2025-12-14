@@ -265,12 +265,11 @@ WorkerPool can help you catch this situation when it's about to happen.
 It is enabled and controlled by two CMake options:
 
 - `WORKER_POOL_DEADLOCK_DETECTION_LEVEL`, which can be
-    - Disabled *(Default)*
-    - Lenient
-    - Strict *(Recommended if you use this feature)*
+    - Off (Default)
+    - On
 
 - `WORKER_POOL_DEADLOCK_DETECTION_ACTION`, which can be
-    - Throw *(Default)*
+    - Throw (Default)
     - Abort
 
 When enabled, calling an untimed pool wait function in a way that would
@@ -284,7 +283,7 @@ auto t1 = pool.add("t1", [&] {
 
     pt2->wait();
     // The above call would deadlock.
-    // If this code is built with WORKER_POOL_DEADLOCK_DETECTION_LEVEL=Strict,
+    // If this code is built with WORKER_POOL_DEADLOCK_DETECTION_LEVEL=On,
     // and WORKER_POOL_DEADLOCK_DETECTION_ACTION=Throw,
     // the call will throw an exception instead.
     // This task doesn't catch the exception,
@@ -314,12 +313,9 @@ at the time when t1 tried to start waiting for t2.
 If you set `WORKER_POOL_DEADLOCK_DETECTION_ACTION` = `Abort`,
 then `pt2->wait()` would call `std::abort()` instead of throwing.
 
-`WORKER_POOL_DEADLOCK_DETECTION_LEVEL` = `Lenient` will still detect some deadlocks but
-ignore some near-misses. We recommend using `Strict` instead.
-
 Note that deadlock detection applies only to WorkerPool's untimed wait functions
 and does not attempt to find or prevent other kinds of deadlocks that may exist in your program.
-Also, it detects deadlocks only right before they happen, not at any other time.
+
 
 ### More examples
 

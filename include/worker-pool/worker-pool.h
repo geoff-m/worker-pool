@@ -34,14 +34,12 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
 namespace worker_pool {
     void log([[maybe_unused]] const char* format...);
 
-#ifdef WORKER_POOL_DEADLOCK_DETECTION
     class deadlock_exception : public std::runtime_error {
     public:
         explicit deadlock_exception(const std::string& message)
             : runtime_error(message) {
         }
     };
-#endif
 
     class pool;
     inline thread_local pool* threadOwningPool;
@@ -432,19 +430,10 @@ namespace worker_pool {
     private:
 #ifdef WORKER_POOL_DEADLOCK_DETECTION
         static thread_local WorkItem* executingWorkItem;
-
         static void checkDeadlock(WorkItem& toAwait);
-
         [[nodiscard]] static std::string formatWaitChain(const WorkItem& wi);
-
 #define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait) checkDeadlock(toAwait)
-#ifdef WORKER_POOL_DEADLOCK_DETECTION_STRICT
-#define FAIL_IF_WAITING_MAY_DEADLOCK(toAwait) checkDeadlock(toAwait)
 #else
-#define FAIL_IF_WAITING_MAY_DEADLOCK(toAwait)
-#endif
-#else
-#define FAIL_IF_WAITING_MAY_DEADLOCK(toAwait)
 #define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait)
 #endif
     };
