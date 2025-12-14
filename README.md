@@ -132,7 +132,7 @@ else
 
 ### Throwing exceptions from tasks
 
-Exceptions with tasks work like you'd expect from `std::future`.
+Exceptions with tasks work like you'd expect from `std::shared_future`.
 If a task throws an exception, the exception will be stored.
 Calls to `wait` will return immediately.
 Calling `get` will rethrow the exception.
@@ -245,7 +245,6 @@ Tasks can be given names, which you might find useful for debugging or other pur
 
 You assign a task's name when you create it,
 and you can retrieve the task's name with `task::get_name()`.
-Outside of this, the library does not use a task's name for any purpose.
 
 ```c++
 using namespace worker_pool;
@@ -281,6 +280,7 @@ task<void>* pt2 = nullptr;
 auto t1 = pool.add("t1", [&] {
     /* Not shown: Wait until pt2 is nonnull */
 
+    // Assume this happens before t2 calls wait.
     pt2->wait();
     // The above call would deadlock.
     // If this code is built with WORKER_POOL_DEADLOCK_DETECTION=On,
@@ -291,7 +291,10 @@ auto t1 = pool.add("t1", [&] {
     // and rethrown when someone tries to get the result of this task.
 });
 
-auto t2 = pool.add("t2", [&] { t1.wait(); });
+auto t2 = pool.add("t2", [&] {
+    sleep(1);
+    t1.wait(); // Assume t1 calls wait before this.
+});
 pt2 = &t2;
 t1.wait(); // Not an error. t1 threw an exception, but awaiting a failed task is fine.
 t2.get(); // Not an error. t2 didn't fail; its wait for t1's termination was successful.
@@ -304,18 +307,19 @@ try {
 ```
 
 With the aforementioned CMake options set, the above code will print something like
+
 ```
 Error: The requested wait would deadlock: t1 would wait for itself via: t2 -> t1.
 ```
+
 This message means that t2 was waiting for t1
 at the time when t1 tried to start waiting for t2.
 
 If you set `WORKER_POOL_DEADLOCK_DETECTION_ACTION` = `Terminate`,
-then `pt2->wait()` would call `std::terminate()` instead of throwing.
+then `wait` would call `std::terminate` instead of throwing.
 
 Note that deadlock detection applies only to WorkerPool's untimed wait functions
 and does not attempt to find or prevent other kinds of deadlocks that may exist in your program.
-
 
 ### More examples
 
