@@ -106,7 +106,6 @@ namespace worker_pool {
             [[nodiscard]] TIterator getIterator() const;
 
 #if defined(WORKER_POOL_DEADLOCK_DETECTION) || defined(WORKER_POOL_DEADLOCK_DETECTION_STRICT)
-            std::mutex waitingForMutex;
             WorkItem* waitingFor = nullptr;
 #endif
         };
