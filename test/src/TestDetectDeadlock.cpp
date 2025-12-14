@@ -4,14 +4,20 @@
 
 using namespace worker_pool;
 
-#ifndef WORKER_POOL_DEADLOCK_DETECTION
-#define REQUIRE_DEADLOCK_DETECTION do { GTEST_SKIP() << "Don't have deadlock detection"; } while (0)
+#if defined(WORKER_POOL_DEADLOCK_DETECTION) && !defined(WORKER_POOL_DEADLOCK_DETECTION_FATAL)
+#define REQUIRE_DEADLOCK_THROW
 #else
-#define REQUIRE_DEADLOCK_DETECTION
+#define REQUIRE_DEADLOCK_THROW do { GTEST_SKIP() << "Deadlocks don't throw"; } while (0)
 #endif
 
-TEST(Deadlock, Simple) {
-    REQUIRE_DEADLOCK_DETECTION;
+#if defined(WORKER_POOL_DEADLOCK_DETECTION) && defined(WORKER_POOL_DEADLOCK_DETECTION_FATAL)
+#define REQUIRE_DEADLOCK_FATAL
+#else
+#define REQUIRE_DEADLOCK_FATAL do { GTEST_SKIP() << "Deadlocks aren't fatal"; } while (0)
+#endif
+
+TEST(Deadlock, SimpleThrow) {
+    REQUIRE_DEADLOCK_THROW;
     pool pool(2, 0, false);
     std::mutex mutex;
     std::condition_variable taskStarted;
@@ -32,13 +38,41 @@ TEST(Deadlock, Simple) {
     pt2.store(&t2, std::memory_order::release);
     t1.wait();
     EXPECT_THROW({
-        t1.get();
-        t2.get();
-        }, deadlock_exception);
+                 t1.get();
+                 t2.get();
+                 }, deadlock_exception);
 }
 
+TEST(Deadlock, SimpleAbort) {
+    REQUIRE_DEADLOCK_FATAL;
+    EXPECT_DEATH({
+                pool pool(2, 0, false);
+                std::mutex mutex;
+                std::condition_variable taskStarted;
+                std::atomic<task<void>*> pt2 = nullptr;
+                auto t1 = pool.add("t1", [&] {
+                    std::unique_lock lock(mutex);
+                    taskStarted.wait(lock);
+                    task<void>* loaded;
+                    while (nullptr == (loaded = pt2.load(std::memory_order::acquire))) {
+                    std::this_thread::yield();
+                    }
+                    loaded->wait();
+                    });
+                auto t2 = pool.add("t2", [&] {
+                    taskStarted.notify_one();
+                    t1.wait();
+                    });
+                pt2.store(&t2, std::memory_order::release);
+                t1.wait();
+                t1.get();
+                t2.get();
+                }, ".*");
+}
+
+
 TEST(Deadlock, Two) {
-    REQUIRE_DEADLOCK_DETECTION;
+    REQUIRE_DEADLOCK_THROW;
     pool pool(3, 0, false);
     task<void>* pt2 = nullptr;
     task<void>* pt3 = nullptr;
@@ -58,10 +92,10 @@ TEST(Deadlock, Two) {
     auto t3 = pool.add("t3", [&] { t1.wait(); });
     pt3 = &t3;
     EXPECT_THROW({
-        t1.get();
-        t2.get();
-        t3.get();
-        }, deadlock_exception);
+                 t1.get();
+                 t2.get();
+                 t3.get();
+                 }, deadlock_exception);
 }
 
 class WaitCycle {
@@ -108,7 +142,7 @@ public:
 };
 
 TEST(Deadlock, Cycle1) {
-    REQUIRE_DEADLOCK_DETECTION;
+    REQUIRE_DEADLOCK_THROW;
     pool pool(1, 0, false);
     WaitCycle cycle(pool, 1);
     auto first = cycle.getFirst();
@@ -116,34 +150,31 @@ TEST(Deadlock, Cycle1) {
 }
 
 TEST(Deadlock, Cycle2) {
-    REQUIRE_DEADLOCK_DETECTION;
+    REQUIRE_DEADLOCK_THROW;
     pool pool(2, 0, false);
     WaitCycle cycle(pool, 2);
     auto first = cycle.getFirst();
     EXPECT_THROW(first->get(), deadlock_exception);
-
 }
 
 TEST(Deadlock, Cycle3) {
-    REQUIRE_DEADLOCK_DETECTION;
+    REQUIRE_DEADLOCK_THROW;
     pool pool(3, 0, false);
     WaitCycle cycle(pool, 3);
     auto first = cycle.getFirst();
     EXPECT_THROW(first->get(), deadlock_exception);
-
 }
 
 TEST(Deadlock, Cycle4) {
-    REQUIRE_DEADLOCK_DETECTION;
+    REQUIRE_DEADLOCK_THROW;
     pool pool(4, 0, false);
     WaitCycle cycle(pool, 4);
     auto first = cycle.getFirst();
     EXPECT_THROW(first->get(), deadlock_exception);
-
 }
 
 TEST(Deadlock, Cycle40) {
-    REQUIRE_DEADLOCK_DETECTION;
+    REQUIRE_DEADLOCK_THROW;
     pool pool(4, 0, false);
     WaitCycle cycle(pool, 40);
     auto first = cycle.getFirst();
@@ -151,7 +182,7 @@ TEST(Deadlock, Cycle40) {
 }
 
 TEST(Deadlock, Cycle80) {
-    REQUIRE_DEADLOCK_DETECTION;
+    REQUIRE_DEADLOCK_THROW;
     pool pool(4, 0, false);
     WaitCycle cycle(pool, 80);
     auto first = cycle.getFirst();
@@ -159,7 +190,7 @@ TEST(Deadlock, Cycle80) {
 }
 
 TEST(Deadlock, Cycle160) {
-    REQUIRE_DEADLOCK_DETECTION;
+    REQUIRE_DEADLOCK_THROW;
     pool pool(4, 0, false);
     WaitCycle cycle(pool, 160);
     auto first = cycle.getFirst();
@@ -167,7 +198,7 @@ TEST(Deadlock, Cycle160) {
 }
 
 TEST(Deadlock, Cycle320) {
-    REQUIRE_DEADLOCK_DETECTION;
+    REQUIRE_DEADLOCK_THROW;
     pool pool(4, 0, false);
     WaitCycle cycle(pool, 320);
     auto first = cycle.getFirst();
@@ -175,7 +206,7 @@ TEST(Deadlock, Cycle320) {
 }
 
 TEST(Deadlock, Cycle640) {
-    REQUIRE_DEADLOCK_DETECTION;
+    REQUIRE_DEADLOCK_THROW;
     pool pool(16, 0, false);
     WaitCycle cycle(pool, 640);
     auto first = cycle.getFirst();
@@ -183,7 +214,7 @@ TEST(Deadlock, Cycle640) {
 }
 
 TEST(Deadlock, Cycle1280) {
-    REQUIRE_DEADLOCK_DETECTION;
+    REQUIRE_DEADLOCK_THROW;
     pool pool(16, 0, false);
     WaitCycle cycle(pool, 1280);
     auto first = cycle.getFirst();

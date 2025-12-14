@@ -20,7 +20,7 @@ option(WORKER_POOL_DEADLOCK_DETECTION "Whether to detect potential deadlocks" OF
 set(WORKER_POOL_DEADLOCK_DETECTION_ACTION "Throw" CACHE STRING "How to react to detected deadlocks")
 set_property(CACHE WORKER_POOL_DEADLOCK_DETECTION_ACTION PROPERTY STRINGS
         Throw
-        Abort
+        Terminate
 )
 
 string(TOLOWER ${WORKER_POOL_DEADLOCK_DETECTION_ACTION} WORKER_POOL_DEADLOCK_DETECTION_ACTION)
@@ -28,9 +28,10 @@ string(TOLOWER ${WORKER_POOL_DEADLOCK_DETECTION_ACTION} WORKER_POOL_DEADLOCK_DET
 if (WORKER_POOL_DEADLOCK_DETECTION)
     target_compile_definitions(worker-pool PUBLIC
             WORKER_POOL_DEADLOCK_DETECTION)
-    if (${WORKER_POOL_DEADLOCK_DETECTION_ACTION} STREQUAL "abort")
-        target_compile_definitions(worker-pool PRIVATE
-                WORKER_POOL_DEADLOCK_DETECTION_ABORT)
+    if (${WORKER_POOL_DEADLOCK_DETECTION_ACTION} STREQUAL "terminate")
+        target_compile_definitions(worker-pool PUBLIC
+                WORKER_POOL_DEADLOCK_DETECTION_TERMINATE
+                WORKER_POOL_DEADLOCK_DETECTION_FATAL)
     endif ()
 endif ()
 
