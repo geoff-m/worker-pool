@@ -31,8 +31,10 @@ TEST(Deadlock, Simple) {
     });
     pt2.store(&t2, std::memory_order::release);
     t1.wait();
-    t2.get();
-    EXPECT_THROW(t1.get(), deadlock_exception);
+    EXPECT_THROW({
+        t1.get();
+        t2.get();
+        }, deadlock_exception);
 }
 
 TEST(Deadlock, Two) {

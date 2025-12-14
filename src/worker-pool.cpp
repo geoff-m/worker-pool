@@ -197,9 +197,7 @@ namespace worker_pool {
             toAwait.getName().c_str());
         // Walk the wait chain, looking for the WorkItem we're currently executing.
         auto* waitingFor = &toAwait;
-        std::list<std::unique_lock<std::mutex>> locks;
         while (waitingFor) {
-            locks.emplace_back(waitingFor->waitingForMutex, std::adopt_lock);
             auto* waitingForNext = waitingFor->waitingFor;
             log("%s is waiting for %s", waitingFor->name.c_str(),
                 waitingForNext ? waitingForNext->name.c_str() : "nothing");
@@ -220,7 +218,6 @@ namespace worker_pool {
 
 #define PUSH_WAITING_FOR do { \
     if (executingWorkItem) { \
-        std::lock_guard waitingForLock(executingWorkItem->waitingForMutex); \
         oldWaitingFor = executingWorkItem->waitingFor; \
         executingWorkItem->waitingFor = workItem.get(); \
         log("%s is now awaiting %s", executingWorkItem->getName().c_str(), workItem->getName().c_str()); \
