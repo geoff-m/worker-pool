@@ -111,6 +111,9 @@ namespace worker_pool {
         template<typename T>
         friend class task;
         friend class WorkItem;
+        const std::string name;
+        static std::atomic<unsigned int> id;
+        std::atomic<size_t> addedTaskCount = 0;
         std::mutex threadsMutex;
         std::atomic<unsigned int> readyThreads; // The number of threads that are doing work or are ready to do so.
         std::list<std::thread> threads;
@@ -119,9 +122,13 @@ namespace worker_pool {
         const std::function<std::thread(std::function<void()>)> threadFactory;
         const bool allowWorkOffPoolThreads;
 
+        [[nodiscard]] static std::string generatePoolName();
+        [[nodiscard]] std::string generateTaskName();
+
     public:
         /**
          * Creates a new pool.
+         * @param name The name for this pool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
          * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
          * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
@@ -129,12 +136,13 @@ namespace worker_pool {
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
         template<typename ThreadFactory>
-        pool(unsigned int targetParallelism, unsigned int extraThreads, ThreadFactory threadFactory,
+        pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads, ThreadFactory threadFactory,
              bool allowWorkOffPoolThreads = true)
-            : targetParallelism(targetParallelism),
+            : name(name.empty() ? generatePoolName() : std::move(name)),
+              targetParallelism(targetParallelism),
               maxWaiterThreads(extraThreads),
               threadFactory([&threadFactory](const std::function<void()>& callback) {
-                  return threadFactory(std::move(callback));
+                  return threadFactory(callback);
               }),
               allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
             if (targetParallelism <= 0)
@@ -148,10 +156,26 @@ namespace worker_pool {
          * Creates a new pool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
          * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
+         * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
+         * to create threads when needed.
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
-        pool(unsigned int targetParallelism, unsigned int extraThreads, bool allowWorkOffPoolThreads = true) : pool(
-            targetParallelism, extraThreads,
+        template<typename ThreadFactory>
+        pool(unsigned int targetParallelism, unsigned int extraThreads, ThreadFactory threadFactory,
+             bool allowWorkOffPoolThreads = true)
+            : pool("", targetParallelism, extraThreads, threadFactory, allowWorkOffPoolThreads) {
+        }
+
+        /**
+         * Creates a new pool.
+         * @param name The name for this pool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
+         * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
+         * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
+         */
+        pool(const std::string& name, unsigned int targetParallelism, unsigned int extraThreads,
+             bool allowWorkOffPoolThreads = true) : pool(
+            name, targetParallelism, extraThreads,
             [](const std::function<void()>& callback) { return std::thread(callback); },
             allowWorkOffPoolThreads) {
         }
@@ -159,8 +183,37 @@ namespace worker_pool {
         /**
          * Creates a new pool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
+         * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
+         * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
+         */
+        pool(unsigned int targetParallelism, unsigned int extraThreads, bool allowWorkOffPoolThreads = true) : pool(
+            "",
+            targetParallelism, extraThreads,
+            [](const std::function<void()>& callback) { return std::thread(callback); },
+            allowWorkOffPoolThreads) {
+        }
+
+        /**
+         * Creates a new pool.
+         * @param name The name for this pool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
+         */
+        explicit pool(const std::string& name, unsigned int targetParallelism) : pool(
+            name, targetParallelism, targetParallelism) {
+        }
+
+        /**
+         * Creates a new pool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
         */
-        explicit pool(unsigned int targetParallelism) : pool(targetParallelism, targetParallelism) {
+        explicit pool(unsigned int targetParallelism) : pool("", targetParallelism, targetParallelism) {
+        }
+
+        /**
+         * Creates a new pool with an automatic number of threads.
+         * @param name The name for this pool.
+         */
+        explicit pool(const std::string& name) : pool(name, detectParallelism()) {
         }
 
         /**
@@ -184,6 +237,8 @@ namespace worker_pool {
          * @param cancelUnstarted Whether unstarted pool tasks should be canceled.
          */
         void shutDown(bool cancelUnstarted = false);
+
+        [[nodiscard]] std::string get_name() const;
 
     private:
         std::condition_variable cv;
@@ -430,8 +485,11 @@ namespace worker_pool {
     private:
 #ifdef WORKER_POOL_DEADLOCK_DETECTION
         static thread_local WorkItem* executingWorkItem;
+
         static void checkDeadlock(WorkItem& toAwait);
+
         [[nodiscard]] static std::string formatWaitChain(const WorkItem& wi);
+
 #define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait) checkDeadlock(toAwait)
 #else
 #define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait)
@@ -569,7 +627,7 @@ namespace worker_pool {
 
     template<typename TCallback, typename... TArgs>
     auto pool::add(TCallback callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))> {
-        return add("", callback, args...);
+        return add(generateTaskName(), callback, args...);
     }
 
     template<typename TCallback, typename... TArgs>
@@ -595,7 +653,7 @@ namespace worker_pool {
     template<typename TCallback, typename... TArgs>
         requires invocable_returns_void<TCallback, TArgs...>
     auto pool::add(TCallback callback, TArgs... args) -> task<void> {
-        return add("", callback, args...);
+        return add(generateTaskName(), callback, args...);
     }
 
     template<typename TCallback, typename... TArgs>
@@ -674,5 +732,4 @@ namespace worker_pool {
         // Everything at this point should be either Executing or Done.
         naive_wait_all(firstExecuting, end);
     }
-
 }
