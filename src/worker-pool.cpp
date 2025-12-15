@@ -71,6 +71,16 @@ namespace worker_pool {
         return std::max(1u, std::thread::hardware_concurrency());
     }
 
+    std::atomic<unsigned int> pool::id = 0;
+
+    std::string pool::generatePoolName() {
+        return std::string("pool") + std::to_string(id++);
+    }
+
+    std::string pool::generateTaskName() {
+        return get_name() + "_task" + std::to_string(addedTaskCount++);
+    }
+
     pool::~pool() {
         shutDown(false);
         std::lock_guard lock(threadsMutex);
@@ -93,6 +103,10 @@ namespace worker_pool {
             }
         }
         cv.notify_all();
+    }
+
+    std::string pool::get_name() const {
+        return name;
     }
 
     void pool::throwIfStopped() const {
