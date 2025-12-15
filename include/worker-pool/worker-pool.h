@@ -674,4 +674,5 @@ namespace worker_pool {
         // Everything at this point should be either Executing or Done.
         naive_wait_all(firstExecuting, end);
     }
+
 }

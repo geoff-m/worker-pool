@@ -13,28 +13,36 @@
 #endif
 
 namespace worker_pool {
-    unsigned long long getThreadId() {
-#ifdef _WIN32
-        return GetCurrentThreadId();
-#else
-        return pthread_self();
-#endif
+    [[nodiscard]] unsigned long long getThreadId() {
+        #ifdef _WIN32
+            return GetCurrentThreadId();
+        #else
+            return pthread_self();
+        #endif
     }
+
     void log(const char* format...) {
 #ifdef WORKER_POOL_LOGGING
-        va_list args;
-        va_start(args, format);
-        char buf[512];
-        buf[sizeof(buf) - 1] = '\0';
+        va_list args1;
+        va_list args2;
+        va_start(args1, format);
+        va_copy(args2, args1);
         const auto timeNanos = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::high_resolution_clock::now().time_since_epoch()).count();
         const auto threadKind = threadOwningPool != nullptr ? "pool" : "non-pool";
-        const auto prefixLength = snprintf(buf, sizeof(buf), "%lld %s thread %llu: ",
-                                           timeNanos, threadKind, getThreadId());
-        vsnprintf(buf + prefixLength, sizeof(buf) - prefixLength, format, args);
-        puts(buf);
+        const auto threadId = getThreadId();
+        const auto prefixLength = snprintf(nullptr, 0, "%lld %s thread %llu: ",
+                                           static_cast<long long>(timeNanos), threadKind, threadId);
+        const auto payloadLength = vsnprintf(nullptr, 0, format, args1);
+        va_end(args1);
+        const auto totalLength = prefixLength + payloadLength;
+        std::unique_ptr<char[]> buf(new char[totalLength + 1]);
+        snprintf(buf.get(), prefixLength + 1, "%lld %s thread %llu: ",
+                 static_cast<long long>(timeNanos), threadKind, threadId);
+        vsnprintf(buf.get() + prefixLength, payloadLength + 1, format, args2);
+        puts(buf.get());
         fflush(stdout);
-        va_end(args);
+        va_end(args2);
 #endif
     }
 
@@ -127,10 +135,10 @@ namespace worker_pool {
     bool pool::WorkItem::trySetExecuting() {
         State oldState = State::Unstarted;
         if (state.compare_exchange_strong(oldState, State::Executing)) {
-            log("trySetExecuting succeeded for task %s", getName().c_str());
+            //log("trySetExecuting succeeded for task %s", getName().c_str());
             return true;
         }
-        log("trySetExecuting failed for task %s", getName().c_str());
+        //log("trySetExecuting failed for task %s", getName().c_str());
         return false;
     }
 
@@ -181,9 +189,9 @@ namespace worker_pool {
                 std::lock_guard lock(threadsMutex);
                 unsafeAddThread();
             }
-            log("Not creating extra thread because no quota");
+            //log("Not creating extra thread because no quota");
         } else {
-            log("Not creating extra thread because waiter is not a pool thread");
+            //log("Not creating extra thread because waiter is not a pool thread");
         }
     }
 
@@ -222,6 +230,7 @@ namespace worker_pool {
                 msg += executingWorkItem->getName();
                 msg += " would wait for itself via ";
                 msg += formatWaitChain(toAwait);
+                log("Throwing exception: %s", msg.c_str());
                 throw deadlock_exception(msg);
 #endif
             }

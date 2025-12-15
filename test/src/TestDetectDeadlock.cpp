@@ -1,6 +1,8 @@
 #include "TestUtils.h"
 #include "worker-pool/worker-pool.h"
 #include <stdexcept>
+#include <random>
+#include <cstdio>
 
 using namespace worker_pool;
 
@@ -100,25 +102,18 @@ TEST(Deadlock, Two) {
 class WaitCycle {
     std::mutex mutex;
     std::condition_variable taskStarted;
-    std::atomic<int> startNext = 0;
     std::vector<std::shared_ptr<task<void>>> tasks;
+    bool allTasksCreated = false;
     int length;
 
-    std::shared_ptr<task<void>> makeWaiter(pool& pool, int index) {
+    std::shared_ptr<task<void>> makeWaiter(pool& pool, int index, int waitForIndex) {
         const auto name = std::string("t") + std::to_string(index);
-        return std::make_shared<task<void>>(pool.add(name, [&, index, name] {
+        return std::make_shared<task<void>>(pool.add(name, [&, waitForIndex, name] {
             std::unique_lock lock(mutex);
-            taskStarted.wait(lock, [&, index] {
-                if (tasks.size() != static_cast<size_t>(length))
-                    return false;
-                int expected = index;
-                int next = (expected + 1) % length;
-                return startNext.compare_exchange_strong(expected, next);
-            });
+            taskStarted.wait(lock, [&] { return allTasksCreated; });
             lock.unlock();
-            taskStarted.notify_all();
-            int toAwaitIdx = (index + 1) % length;
-            auto toAwait = tasks[toAwaitIdx];
+            auto toAwait = tasks[waitForIndex];
+            printf("%s will wait for %s\n", name.c_str(), toAwait->get_name().c_str());
             toAwait->get();
         }));
     }
@@ -128,15 +123,40 @@ public:
         if (length <= 0)
             throw std::invalid_argument("Length must be positive");
 
+        // Create tasks 0..length-1 where task i waits for task i+1.
+        // However, we'll create them (add them to the pool) in a random order.
+        // Otherwise, these tests are boring.
+        auto indices = std::unique_ptr<int[]>(new int[length]);
+        auto inverseIndices = std::unique_ptr<int[]>(new int[length]);
         for (int i = 0; i < length; i++) {
-            tasks.emplace_back(makeWaiter(pool, i));
+            indices[i] = i;
+            inverseIndices[i] = i;
+        }
+        // Randomize order that we create tasks in.
+        std::mt19937 engine(std::chrono::system_clock::now().time_since_epoch().count());
+        std::uniform_int_distribution<int> dist(0, length - 1);
+        for (int i = 0; i < length; i++) {
+            const auto r = dist(engine);
+            std::swap(indices[i], indices[r]);
+        }
+        for (int i = 0; i < length; i++) {
+            inverseIndices[indices[i]] = i;
         }
 
+        tasks.resize(length);
+        for (int i = 0; i < length; i++) {
+            tasks[i] = makeWaiter(pool, indices[i], inverseIndices[(indices[i] + 1) % length]);
+        }
+
+        {
+            std::lock_guard lock(mutex);
+            allTasksCreated = true;
+        }
         taskStarted.notify_all();
     }
 
     std::shared_ptr<task<void>> getFirst() {
-        return tasks.front();
+        return tasks[0];
     }
 };
 
