@@ -314,7 +314,7 @@ try {
 With the aforementioned CMake options set, the above code will print something like
 
 ```
-Error: The requested wait would deadlock: t1 would wait for itself via: t2 -> t1.
+Error: The requested wait would deadlock: t1 would wait for itself via t2 -> t1.
 ```
 
 This message means that t2 was waiting for t1
