@@ -22,22 +22,24 @@ TEST(Deadlock, SimpleThrow) {
     REQUIRE_DEADLOCK_THROW;
     pool pool(2, 0, false);
     std::mutex mutex;
-    std::condition_variable taskStarted;
+    std::condition_variable cv;
     std::atomic<task<void>*> pt2 = nullptr;
     auto t1 = pool.add("t1", [&] {
-        std::unique_lock lock(mutex);
-        taskStarted.wait(lock);
         task<void>* loaded;
-        while (nullptr == (loaded = pt2.load(std::memory_order::acquire))) {
-            std::this_thread::yield();
+        {
+            std::unique_lock lock(mutex);
+            cv.wait(lock, [&] { return nullptr != (loaded = pt2.load(std::memory_order::acquire)); });
         }
         loaded->wait();
     });
     auto t2 = pool.add("t2", [&] {
-        taskStarted.notify_one();
         t1.wait();
     });
-    pt2.store(&t2, std::memory_order::release);
+    {
+        std::lock_guard lock(mutex);
+        pt2.store(&t2, std::memory_order::release);
+    }
+    cv.notify_one();
     t1.wait();
     EXPECT_THROW({
                  t1.get();
@@ -50,22 +52,24 @@ TEST(Deadlock, SimpleFatal) {
     EXPECT_DEATH({
                  pool pool(2, 0, false);
                  std::mutex mutex;
-                 std::condition_variable taskStarted;
+                 std::condition_variable cv;
                  std::atomic<task<void>*> pt2 = nullptr;
                  auto t1 = pool.add("t1", [&] {
-                     std::unique_lock lock(mutex);
-                     taskStarted.wait(lock);
                      task<void>* loaded;
-                     while (nullptr == (loaded = pt2.load(std::memory_order::acquire))) {
-                     std::this_thread::yield();
+                     {
+                     std::unique_lock lock(mutex);
+                     cv.wait(lock, [&] { return nullptr != (loaded = pt2.load(std::memory_order::acquire)); });
                      }
                      loaded->wait();
                      });
                  auto t2 = pool.add("t2", [&] {
-                     taskStarted.notify_one();
                      t1.wait();
                      });
+                 {
+                 std::lock_guard lock(mutex);
                  pt2.store(&t2, std::memory_order::release);
+                 }
+                 cv.notify_one();
                  t1.wait();
                  t1.get();
                  t2.get();
@@ -132,7 +136,7 @@ public:
             inverseIndices[i] = i;
         }
         // Randomize order that we create tasks in.
-        std::mt19937 engine(std::chrono::system_clock::now().time_since_epoch().count());
+        std::mt19937 engine(1337);
         std::uniform_int_distribution<int> dist(0, length - 1);
         for (int i = 0; i < length; i++) {
             const auto r = dist(engine);
