@@ -15,7 +15,7 @@ WorkerPool is a thread pool. It aims to be easy to use.
 - Not global, allows multiple pools in one process
 - You can provide your own thread factory
 - Useful for debugging: Can detect deadlocks arising from cyclic waits
-- Useful for debugging: Pool and tasks have names
+- Useful for debugging: Pools and tasks have names
 
 ## Usage
 
