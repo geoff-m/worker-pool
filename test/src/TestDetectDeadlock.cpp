@@ -104,7 +104,6 @@ class WaitCycle {
     std::condition_variable taskStarted;
     std::vector<std::shared_ptr<task<void>>> tasks;
     bool allTasksCreated = false;
-    int length;
 
     std::shared_ptr<task<void>> makeWaiter(pool& pool, int index, int waitForIndex) {
         const auto name = std::string("t") + std::to_string(index);
@@ -119,7 +118,7 @@ class WaitCycle {
     }
 
 public:
-    explicit WaitCycle(pool& pool, int length) : length(length) {
+    explicit WaitCycle(pool& pool, int length) {
         if (length <= 0)
             throw std::invalid_argument("Length must be positive");
 
