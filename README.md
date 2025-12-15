@@ -15,13 +15,14 @@ WorkerPool is a thread pool. It aims to be easy to use.
 - Not global, allows multiple pools in one process
 - You can provide your own thread factory
 - Useful for debugging: Can detect deadlocks arising from cyclic waits
-- Useful for debugging: Tasks can have names
+- Useful for debugging: Pool and tasks have names
 
 ## Usage
 
 ### Simple example
 
 ```c++
+#include "worker-pool/worker-pool.h"
 using namespace worker_pool;
 
 // Create a thread pool with an automatic number of threads.
@@ -40,8 +41,6 @@ t2.wait();
 ### Result example
 
 ```c++
-using namespace worker_pool;
-
 // Create a pool that will do up to 8 things in parallel.
 pool pool(8);
 
@@ -58,8 +57,6 @@ printf("%d + %d = %d\n", X, Y, sum); // Prints 2 + 5 = 7
 ### Different ways to add a task
 
 ```c++
-using namespace worker_pool;
-
 constexpr auto X = 2;
 constexpr auto Y = 5;
 
@@ -77,8 +74,6 @@ task sumTask = pool.add(add, X, Y);
 ### Waiting for multiple tasks
 
 ```c++
-using namespace worker_pool;
-
 pool pool;
 std::vector<task<void>> tasks;
 tasks.emplace_back(pool.add([]{ puts("I'm a task"); }));
@@ -96,6 +91,8 @@ pool::wait_all(tasks.data(), tasks.size());
 
 Compared with sequentially calling `task::wait` on each of a set of tasks,
 `pool::wait_all` is more convenient, and in some scenarios, also more performant.
+Further discussion of the waiting features can be found
+[on my blog](https://geoff.space/2025/12/intelligent-waiting-in-a-thread-pool/).
 
 ### Timed waiting
 
@@ -218,8 +215,6 @@ The pool will execute this callback whenever it wants to create a thread.
 ```c++
 #include <pthread.h>
 #include <cstdio>
-...
-using namespace worker_pool;
 
 pool pool(4, 4,
   [&](const std::function<void()>& callback) {
@@ -239,21 +234,31 @@ pool pool(4, 4,
 
 All threads created by the above pool will have their priority set to 20.
 
-### Named tasks
+### Names for pools and tasks
 
-Tasks can be given names, which you might find useful for debugging or other purposes.
+Pools and tasks can be given names, which you might find useful for debugging or other purposes.
 
-You assign a task's name when you create it,
-and you can retrieve the task's name with `task::get_name()`.
+For both types of objects, you assign their names when you create them,
+and you can retrieve the name with `get_name()`.
 
 ```c++
-using namespace worker_pool;
+pool pool("my pool")
+auto task = pool.add("some task", []{});
+```
 
+If you do not provide a name, one will be generated automatically.
+Generated task names will be prefixed with the owning pool's name.
+
+```c++
 pool pool;
-auto task = pool.add("apples", []{});
-
-// Will print "Created task apples"
-std::cout << "Created task " << task.get_name() << '\n';
+auto task = pool.add([]{});
+std::cout << "Pool name: " << pool.get_name() << '\n';
+std::cout << "Task name: " << task.get_name() << '\n';
+```
+As an example, the above code might print
+```
+Pool name: pool0
+Task name: pool0_task0
 ```
 
 ### Deadlock detection
@@ -321,11 +326,8 @@ then `wait` would call `std::terminate` instead of throwing.
 Note that deadlock detection applies only to WorkerPool's untimed wait functions
 and does not attempt to find or prevent other kinds of deadlocks that may exist in your program.
 
+Further discussion of what this feature is and how it works can be found
+[on my blog](https://geoff.space/2025/12/detecting-deadlocks-in-a-thread-pool/).
 ### More examples
 
 The unit tests in `test/src/` are good sources of further examples.
-
-## Further reading
-
-A discussion of the design of the task waiting features can be
-found [on my blog](https://geoff.space/2025/12/intelligent-waiting-in-a-thread-pool/).
