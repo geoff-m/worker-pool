@@ -677,8 +677,15 @@ namespace worker_pool {
         auto* pwi = wi.get(); // Avoid reference cycle
         wi->setCallback(std::packaged_task<std::any()>([=] {
             pwi->throwIfCanceled();
-            TResult result = std::invoke(callback, args...);
-            return std::any(result);
+            try {
+                TResult result = std::invoke(callback, args...);
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                return std::any(result);
+            } catch (...) {
+                // Ensure the WorkItem state gets marked as Done even if user code throws.
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                throw;
+            }
         }));
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
@@ -701,8 +708,15 @@ namespace worker_pool {
         auto* pwi = wi.get(); // Avoid reference cycle
         wi->setCallback(std::packaged_task<std::any()>([=] {
             pwi->throwIfCanceled();
-            std::invoke(callback, args...);
-            return std::any(0); // dummy value
+            try {
+                std::invoke(callback, args...);
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                return std::any(0); // dummy value
+            } catch (...) {
+                // Ensure the WorkItem state gets marked as Done even if user code throws.
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                throw;
+            }
         }));
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);

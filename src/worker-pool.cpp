@@ -1,5 +1,6 @@
 #include "worker-pool/worker-pool.h"
 
+#include <cassert>
 #include <chrono>
 #include <sstream>
 
@@ -15,11 +16,11 @@
 namespace worker_pool {
 #ifdef WORKER_POOL_LOGGING
     [[nodiscard]] unsigned long long getThreadId() {
-        #ifdef _WIN32
-            return GetCurrentThreadId();
-        #else
-            return pthread_self();
-        #endif
+#ifdef _WIN32
+        return GetCurrentThreadId();
+#else
+        return pthread_self();
+#endif
     }
 #endif
 
@@ -162,10 +163,8 @@ namespace worker_pool {
         TaskState oldState = TaskState::Unstarted;
         if (!state.compare_exchange_strong(oldState, TaskState::Canceled))
             return false;
-        // This will throw an exception to store that we have canceled,
-        // and it will set our state to Done.
+        // This will throw an exception to store that we have canceled.
         execute();
-        // Change our state to Canceled for posterity.
         state.store(TaskState::Canceled, std::memory_order::release);
         return true;
     }
@@ -177,7 +176,6 @@ namespace worker_pool {
 #endif
         log("Beginning task %s", getName().c_str());
         task();
-        state.store(TaskState::Done, std::memory_order::release);
 #ifdef WORKER_POOL_DEADLOCK_DETECTION
         executingWorkItem = oldExecuting;
 #endif
@@ -305,6 +303,7 @@ deadlockCheckLock.unlock(); \
                         PUSH_WAITING_FOR;
                         workItem->future.wait();
                         POP_WAITING_FOR;
+                        assert(workItem->getState() != TaskState::Executing);
                         return;
                     }
                     // Execute it synchronously.
@@ -320,6 +319,7 @@ deadlockCheckLock.unlock(); \
                         PUSH_WAITING_FOR;
                         workItem->execute();
                         POP_WAITING_FOR;
+                        assert(workItem->getState() != TaskState::Executing);
                         return;
                     }
                     continue; // retry wait on this item.
@@ -332,6 +332,7 @@ deadlockCheckLock.unlock(); \
                     // Block this thread.
                     workItem->future.wait();
                     POP_WAITING_FOR;
+                    assert(workItem->getState() != TaskState::Executing);
                     return;
                 }
             }
