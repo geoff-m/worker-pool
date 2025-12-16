@@ -13,6 +13,7 @@
 #endif
 
 namespace worker_pool {
+#ifdef WORKER_POOL_LOGGING
     [[nodiscard]] unsigned long long getThreadId() {
         #ifdef _WIN32
             return GetCurrentThreadId();
@@ -20,6 +21,7 @@ namespace worker_pool {
             return pthread_self();
         #endif
     }
+#endif
 
     void log(const char* format...) {
 #ifdef WORKER_POOL_LOGGING
@@ -46,13 +48,13 @@ namespace worker_pool {
 #endif
     }
 
-    const char* pool::WorkItem::workItemStateToString(State state) {
+    const char* pool::WorkItem::workItemStateToString(TaskState state) {
         switch (state) {
-            case State::Unstarted:
+            case TaskState::Unstarted:
                 return "Unstarted";
-            case State::Executing:
+            case TaskState::Executing:
                 return "Executing";
-            case State::Done:
+            case TaskState::Done:
                 return "Done";
             default:
                 return "Unknown";
@@ -125,7 +127,7 @@ namespace worker_pool {
         : id(id),
           owningPool(owner),
           name(std::move(name)) {
-        state.store(State::Unstarted, std::memory_order::release);
+        state.store(TaskState::Unstarted, std::memory_order::release);
     }
 
     void pool::WorkItem::enableDeletion(TIterator self) {
@@ -138,7 +140,7 @@ namespace worker_pool {
     }
 
     void pool::WorkItem::throwIfCanceled() {
-        if (state.load(std::memory_order::acquire) == State::Canceled)
+        if (state.load(std::memory_order::acquire) == TaskState::Canceled)
             throw std::runtime_error("This task has been canceled");
     }
 
@@ -147,8 +149,8 @@ namespace worker_pool {
     }
 
     bool pool::WorkItem::trySetExecuting() {
-        State oldState = State::Unstarted;
-        if (state.compare_exchange_strong(oldState, State::Executing)) {
+        TaskState oldState = TaskState::Unstarted;
+        if (state.compare_exchange_strong(oldState, TaskState::Executing)) {
             //log("trySetExecuting succeeded for task %s", getName().c_str());
             return true;
         }
@@ -157,10 +159,14 @@ namespace worker_pool {
     }
 
     bool pool::WorkItem::trySetCanceled() {
-        State oldState = State::Unstarted;
-        if (!state.compare_exchange_strong(oldState, State::Canceled))
+        TaskState oldState = TaskState::Unstarted;
+        if (!state.compare_exchange_strong(oldState, TaskState::Canceled))
             return false;
+        // This will throw an exception to store that we have canceled,
+        // and it will set our state to Done.
         execute();
+        // Change our state to Canceled for posterity.
+        state.store(TaskState::Canceled, std::memory_order::release);
         return true;
     }
 
@@ -171,7 +177,7 @@ namespace worker_pool {
 #endif
         log("Beginning task %s", getName().c_str());
         task();
-        state.store(State::Done, std::memory_order::release);
+        state.store(TaskState::Done, std::memory_order::release);
 #ifdef WORKER_POOL_DEADLOCK_DETECTION
         executingWorkItem = oldExecuting;
 #endif
@@ -192,6 +198,10 @@ namespace worker_pool {
 
     pool::WorkItem::TIterator pool::WorkItem::getIterator() const {
         return thisIterator;
+    }
+
+    TaskState pool::WorkItem::getState() const {
+        return state.load(std::memory_order::acquire);
     }
 
     void pool::maybeAddThreadBeforeWait(const WorkItem& workItem) {
@@ -284,11 +294,11 @@ deadlockCheckLock.unlock(); \
                 workItem->getName().c_str(), WorkItem::workItemStateToString(state));
             switch (state) {
                 default:
-                case WorkItem::State::Done:
+                case TaskState::Done:
                     // Waiting for an item that's already done.
                     // There's no way this could lead to a deadlock.
                     return;
-                case WorkItem::State::Unstarted: {
+                case TaskState::Unstarted: {
                     // Waiting for an item that hasn't begun to be executed yet.
                     FAIL_IF_WAITING_WILL_DEADLOCK(*workItem);
                     if (!allowWorkOffPoolThreads && threadOwningPool != this) {
@@ -314,7 +324,7 @@ deadlockCheckLock.unlock(); \
                     }
                     continue; // retry wait on this item.
                 }
-                case WorkItem::State::Executing: {
+                case TaskState::Executing: {
                     // Waiting for an item that's currently being executed.
                     FAIL_IF_WAITING_WILL_DEADLOCK(*workItem);
                     PUSH_WAITING_FOR;

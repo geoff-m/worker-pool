@@ -83,8 +83,8 @@ TEST(Cancel, CancelUnstartedVoid) {
             {
                 std::lock_guard lock(mutex);
                 task1Started = true;
-                cv.notify_one();
             }
+            cv.notify_one();
             sleepMs(1000);
             ++tasksDone;
             return 1;
