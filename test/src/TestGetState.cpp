@@ -74,8 +74,7 @@ TEST(GetState, Canceled) {
             cv.wait(lock, [&] { return state == T1CanExit; });
         }
     });
-
-    bool t2Started = false;
+    
     auto t2 = pool.add([&] {
         // This task should get canceled.
     });
