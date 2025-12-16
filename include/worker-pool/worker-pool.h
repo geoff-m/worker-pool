@@ -41,6 +41,12 @@ namespace worker_pool {
         }
     };
 
+    class canceled_exception : public std::runtime_error {
+        public:
+        explicit canceled_exception()
+            : runtime_error("Task has been canceled") {}
+    };
+
     class pool;
     inline thread_local pool* threadOwningPool;
 

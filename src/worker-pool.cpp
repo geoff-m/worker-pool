@@ -142,7 +142,7 @@ namespace worker_pool {
 
     void pool::WorkItem::throwIfCanceled() {
         if (state.load(std::memory_order::acquire) == TaskState::Canceled)
-            throw std::runtime_error("This task has been canceled");
+            throw canceled_exception();
     }
 
     bool pool::WorkItem::operator==(const WorkItem& other) const {
