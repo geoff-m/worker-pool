@@ -527,7 +527,6 @@ namespace worker_pool {
     public:
         /**
          * Blocks until this task is complete.
-         * Rethrows whatever exception the asynchronous operation threw, if any.
          * @return The result returned from this task.
          */
         void wait() {
@@ -632,6 +631,7 @@ namespace worker_pool {
     public:
         /**
          * Gets the result returned from this task, waiting if necessary.
+         * If the task threw an exception, rethrows it.
          * @return The result returned from this task.
          */
         [[nodiscard]] TResult get() {
@@ -654,7 +654,7 @@ namespace worker_pool {
     public:
         /**
          * Blocks until this task is complete.
-         * Rethrows whatever exception the asynchronous operation threw, if any.
+         * If the task threw an exception, rethrows it.
          */
         void get() {
             wait();
