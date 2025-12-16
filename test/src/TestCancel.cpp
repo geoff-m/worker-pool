@@ -307,5 +307,3 @@ TEST(Cancel, CancelVoidDuringWaitAll) {
     }
     EXPECT_EQ(1, tasksDone);
 }
-
-

@@ -3,6 +3,42 @@
 
 using namespace worker_pool;
 
+template<typename T>
+void expectUnstarted(const task<T>& task) {
+    EXPECT_EQ(TaskState::Unstarted, task.get_state());
+    EXPECT_TRUE(task.is_unstarted());
+    EXPECT_FALSE(task.is_executing());
+    EXPECT_FALSE(task.is_done());
+    EXPECT_FALSE(task.is_canceled());
+}
+
+template<typename T>
+void expectExecuting(const task<T>& task) {
+    EXPECT_EQ(TaskState::Executing, task.get_state());
+    EXPECT_FALSE(task.is_unstarted());
+    EXPECT_TRUE(task.is_executing());
+    EXPECT_FALSE(task.is_done());
+    EXPECT_FALSE(task.is_canceled());
+}
+
+template<typename T>
+void expectDone(const task<T>& task) {
+    EXPECT_EQ(TaskState::Done, task.get_state());
+    EXPECT_FALSE(task.is_unstarted());
+    EXPECT_FALSE(task.is_executing());
+    EXPECT_TRUE(task.is_done());
+    EXPECT_FALSE(task.is_canceled());
+}
+
+template<typename T>
+void expectCanceled(const task<T>& task) {
+    EXPECT_EQ(TaskState::Canceled, task.get_state());
+    EXPECT_FALSE(task.is_unstarted());
+    EXPECT_FALSE(task.is_executing());
+    EXPECT_FALSE(task.is_done());
+    EXPECT_TRUE(task.is_canceled());
+}
+
 TEST(GetState, Int) {
     pool pool(1, 0, false);
     std::mutex mutex;
@@ -36,7 +72,7 @@ TEST(GetState, Int) {
         cv.notify_all();
         return 5;
     });
-    EXPECT_EQ(TaskState::Unstarted, t2.get_state());
+    expectUnstarted(t2);
 
     // Tell t1 to finish, allowing t2 to start.
     {
@@ -48,13 +84,13 @@ TEST(GetState, Int) {
     {
         std::unique_lock lock(mutex);
         cv.wait(lock, [&] { return t2Started && state == T2MustWait; });
-        EXPECT_EQ(TaskState::Executing, t2.get_state());
+        expectExecuting(t2);
         state = T2CanExit;
     }
     cv.notify_one();
 
     EXPECT_EQ(5, t2.get());
-    EXPECT_EQ(TaskState::Done, t2.get_state());
+    expectDone(t2);
 }
 
 TEST(GetState, Canceled) {
@@ -74,14 +110,14 @@ TEST(GetState, Canceled) {
             cv.wait(lock, [&] { return state == T1CanExit; });
         }
     });
-    
+
     auto t2 = pool.add([&] {
         // This task should get canceled.
     });
-    EXPECT_EQ(TaskState::Unstarted, t2.get_state());
+    expectUnstarted(t2);
 
     EXPECT_TRUE(t2.try_cancel());
-    EXPECT_EQ(TaskState::Canceled, t2.get_state());
+    expectCanceled(t2);
 
     // Allow t1 to finish.
     {
@@ -91,5 +127,5 @@ TEST(GetState, Canceled) {
     cv.notify_one();
 
     EXPECT_NO_THROW(t1.get());
-    EXPECT_EQ(TaskState::Done, t1.get_state());
+    expectDone(t1);
 }

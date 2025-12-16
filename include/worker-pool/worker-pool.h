@@ -48,9 +48,16 @@ namespace worker_pool {
     class task;
 
     enum class TaskState {
+        // The task is queued in the pool but has not begun executing.
         Unstarted,
+
+        // The task is executing.
         Executing,
+
+        // The task has finished executing (either by returning or throwing).
         Done,
+
+        // The task has been canceled while unstarted.
         Canceled
     };
 
@@ -125,6 +132,7 @@ namespace worker_pool {
         const bool allowWorkOffPoolThreads;
 
         [[nodiscard]] static std::string generatePoolName();
+
         [[nodiscard]] std::string generateTaskName();
 
     public:
@@ -579,6 +587,38 @@ namespace worker_pool {
         [[nodiscard]] TaskState get_state() const {
             return wi->getState();
         }
+
+        /**
+         * Checks whether this task is unstarted. Does not block.
+         * @return A Boolean value indicating whether this task is unstarted.
+         */
+        [[nodiscard]] bool is_unstarted() const {
+            return get_state() == TaskState::Unstarted;
+        }
+
+        /**
+         * Checks whether this task is executing. Does not block.
+         * @return A Boolean value indicating whether this task is executing.
+         */
+        [[nodiscard]] bool is_executing() const {
+            return get_state() == TaskState::Executing;
+        }
+
+        /**
+         * Checks whether this task is done. Does not block.
+         * @return A Boolean value indicating whether this task is done.
+         */
+        [[nodiscard]] bool is_done() const {
+            return get_state() == TaskState::Done;
+        }
+
+        /**
+         * Checks whether this task is canceled. Does not block.
+         * @return A Boolean value indicating whether this task is canceled.
+         */
+        [[nodiscard]] bool is_canceled() const {
+            return get_state() == TaskState::Canceled;
+        }
     };
 
     /**
@@ -658,6 +698,38 @@ namespace worker_pool {
          */
         [[nodiscard]] TaskState get_state() const {
             return wi->getState();
+        }
+
+        /**
+         * Checks whether this task is unstarted. Does not block.
+         * @return A Boolean value indicating whether this task is unstarted.
+         */
+        [[nodiscard]] bool is_unstarted() const {
+            return get_state() == TaskState::Unstarted;
+        }
+
+        /**
+         * Checks whether this task is executing. Does not block.
+         * @return A Boolean value indicating whether this task is executing.
+         */
+        [[nodiscard]] bool is_executing() const {
+            return get_state() == TaskState::Executing;
+        }
+
+        /**
+         * Checks whether this task is done. Does not block.
+         * @return A Boolean value indicating whether this task is done.
+         */
+        [[nodiscard]] bool is_done() const {
+            return get_state() == TaskState::Done;
+        }
+
+        /**
+         * Checks whether this task is canceled. Does not block.
+         * @return A Boolean value indicating whether this task is canceled.
+         */
+        [[nodiscard]] bool is_canceled() const {
+            return get_state() == TaskState::Canceled;
         }
     };
 
