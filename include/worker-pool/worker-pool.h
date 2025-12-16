@@ -41,11 +41,31 @@ namespace worker_pool {
         }
     };
 
+    class canceled_exception : public std::runtime_error {
+        public:
+        explicit canceled_exception()
+            : runtime_error("Task has been canceled") {}
+    };
+
     class pool;
     inline thread_local pool* threadOwningPool;
 
     template<typename TResult>
     class task;
+
+    enum class TaskState {
+        // The task is queued in the pool but has not begun executing.
+        Unstarted,
+
+        // The task is executing.
+        Executing,
+
+        // The task has finished executing (either by returning or throwing).
+        Done,
+
+        // The task has been canceled while unstarted.
+        Canceled
+    };
 
     /**
      * A thread pool to which tasks can be added as callbacks.
@@ -56,17 +76,10 @@ namespace worker_pool {
         class WorkItem {
             friend class pool;
 
-            enum class State {
-                Unstarted,
-                Executing,
-                Done,
-                Canceled
-            };
-
-            [[nodiscard]] static const char* workItemStateToString(State state);
+            [[nodiscard]] static const char* workItemStateToString(TaskState state);
 
             size_t id;
-            std::atomic<State> state;
+            std::atomic<TaskState> state;
             pool& owningPool;
             std::packaged_task<std::any()> task;
             std::shared_future<std::any> future;
@@ -103,6 +116,8 @@ namespace worker_pool {
 
             [[nodiscard]] TIterator getIterator() const;
 
+            [[nodiscard]] TaskState getState() const;
+
 #if defined(WORKER_POOL_DEADLOCK_DETECTION) || defined(WORKER_POOL_DEADLOCK_DETECTION_STRICT)
             WorkItem* waitingFor = nullptr;
 #endif
@@ -123,6 +138,7 @@ namespace worker_pool {
         const bool allowWorkOffPoolThreads;
 
         [[nodiscard]] static std::string generatePoolName();
+
         [[nodiscard]] std::string generateTaskName();
 
     public:
@@ -325,7 +341,7 @@ namespace worker_pool {
             auto state = workItem->state.load(std::memory_order::acquire);
             log("Timed wait for task %s (task is %s)",
                 workItem->getName().c_str(), WorkItem::workItemStateToString(state));
-            if (state == WorkItem::State::Done)
+            if (state == TaskState::Done)
                 return true;
 
             maybeAddThreadBeforeWait(*workItem);
@@ -548,10 +564,19 @@ namespace worker_pool {
             return any_cast<TResult>(wi->getResult());
         }
 
+        /**
+         * Gets the name of this task.
+         * @return The name of this task.
+         */
         [[nodiscard]] std::string get_name() const {
             return wi->getName();
         }
 
+        /**
+         * Attempts to cancel this task.
+         * This will succeed only if the task is unstarted.
+         * @return True if this task transitioned from unstarted to canceled.
+         */
         bool try_cancel() {
             auto& pool = wi->getOwningPool();
             std::lock_guard lock(pool.unstartedMutex);
@@ -559,6 +584,46 @@ namespace worker_pool {
                 return false;
             pool.unstarted.erase(wi->getIterator());
             return true;
+        }
+
+        /**
+         * Gets the current state of this task. Does not block.
+         * @return The state of this task.
+         */
+        [[nodiscard]] TaskState get_state() const {
+            return wi->getState();
+        }
+
+        /**
+         * Checks whether this task is unstarted. Does not block.
+         * @return A Boolean value indicating whether this task is unstarted.
+         */
+        [[nodiscard]] bool is_unstarted() const {
+            return get_state() == TaskState::Unstarted;
+        }
+
+        /**
+         * Checks whether this task is executing. Does not block.
+         * @return A Boolean value indicating whether this task is executing.
+         */
+        [[nodiscard]] bool is_executing() const {
+            return get_state() == TaskState::Executing;
+        }
+
+        /**
+         * Checks whether this task is done. Does not block.
+         * @return A Boolean value indicating whether this task is done.
+         */
+        [[nodiscard]] bool is_done() const {
+            return get_state() == TaskState::Done;
+        }
+
+        /**
+         * Checks whether this task is canceled. Does not block.
+         * @return A Boolean value indicating whether this task is canceled.
+         */
+        [[nodiscard]] bool is_canceled() const {
+            return get_state() == TaskState::Canceled;
         }
     };
 
@@ -611,10 +676,19 @@ namespace worker_pool {
             return wi->getOwningPool().wait_until(wi, timeout_time);
         }
 
+        /**
+        * Gets the name of this task.
+        * @return The name of this task.
+        */
         [[nodiscard]] std::string get_name() const {
             return wi->getName();
         }
 
+        /**
+         * Attempts to cancel this task.
+         * This will succeed only if the task is unstarted.
+         * @return True if this task transitioned from unstarted to canceled.
+         */
         bool try_cancel() {
             auto& pool = wi->getOwningPool();
             std::lock_guard lock(pool.unstartedMutex);
@@ -622,6 +696,46 @@ namespace worker_pool {
                 return false;
             pool.unstarted.erase(wi->getIterator());
             return true;
+        }
+
+        /**
+         * Gets the current state of this task. Does not block.
+         * @return The state of this task.
+         */
+        [[nodiscard]] TaskState get_state() const {
+            return wi->getState();
+        }
+
+        /**
+         * Checks whether this task is unstarted. Does not block.
+         * @return A Boolean value indicating whether this task is unstarted.
+         */
+        [[nodiscard]] bool is_unstarted() const {
+            return get_state() == TaskState::Unstarted;
+        }
+
+        /**
+         * Checks whether this task is executing. Does not block.
+         * @return A Boolean value indicating whether this task is executing.
+         */
+        [[nodiscard]] bool is_executing() const {
+            return get_state() == TaskState::Executing;
+        }
+
+        /**
+         * Checks whether this task is done. Does not block.
+         * @return A Boolean value indicating whether this task is done.
+         */
+        [[nodiscard]] bool is_done() const {
+            return get_state() == TaskState::Done;
+        }
+
+        /**
+         * Checks whether this task is canceled. Does not block.
+         * @return A Boolean value indicating whether this task is canceled.
+         */
+        [[nodiscard]] bool is_canceled() const {
+            return get_state() == TaskState::Canceled;
         }
     };
 
@@ -641,8 +755,15 @@ namespace worker_pool {
         auto* pwi = wi.get(); // Avoid reference cycle
         wi->setCallback(std::packaged_task<std::any()>([=] {
             pwi->throwIfCanceled();
-            TResult result = std::invoke(callback, args...);
-            return std::any(result);
+            try {
+                TResult result = std::invoke(callback, args...);
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                return std::any(result);
+            } catch (...) {
+                // Ensure the WorkItem state gets marked as Done even if user code throws.
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                throw;
+            }
         }));
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
@@ -665,8 +786,15 @@ namespace worker_pool {
         auto* pwi = wi.get(); // Avoid reference cycle
         wi->setCallback(std::packaged_task<std::any()>([=] {
             pwi->throwIfCanceled();
-            std::invoke(callback, args...);
-            return std::any(0); // dummy value
+            try {
+                std::invoke(callback, args...);
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                return std::any(0); // dummy value
+            } catch (...) {
+                // Ensure the WorkItem state gets marked as Done even if user code throws.
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                throw;
+            }
         }));
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
@@ -692,9 +820,9 @@ namespace worker_pool {
                 log("%s state is %s", it->get_name().c_str(), WorkItem::workItemStateToString(state));
                 switch (state) {
                     default:
-                    case WorkItem::State::Done:
+                    case TaskState::Done:
                         break;
-                    case WorkItem::State::Unstarted: {
+                    case TaskState::Unstarted: {
                         auto& taskPool = item->getOwningPool();
                         if (threadOwningPool != &taskPool && !taskPool.allowWorkOffPoolThreads) {
                             goto asIfExecuting;
@@ -715,7 +843,7 @@ namespace worker_pool {
                         }
                         break;
                     }
-                    case WorkItem::State::Executing:
+                    case TaskState::Executing:
                     asIfExecuting: {
                             if (firstExecuting == end) {
                                 firstExecuting = it;

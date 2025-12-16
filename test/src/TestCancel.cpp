@@ -27,8 +27,8 @@ TEST(Cancel, CancelNonvoidAtShutdown) {
     pool.shutDown(true);
 
     EXPECT_EQ(1, t1.get());
-    EXPECT_ANY_THROW((void)t2.get());
-    EXPECT_ANY_THROW((void)t2.get());
+    EXPECT_THROW((void)t2.get(), canceled_exception);
+    EXPECT_THROW((void)t2.get(), canceled_exception);
 }
 
 TEST(Cancel, CancelVoidAtShutdown) {
@@ -53,8 +53,8 @@ TEST(Cancel, CancelVoidAtShutdown) {
     pool.shutDown(true);
 
     EXPECT_EQ(1, t1.get());
-    EXPECT_ANY_THROW(t2.get());
-    EXPECT_ANY_THROW(t2.get());
+    EXPECT_THROW(t2.get(), canceled_exception);
+    EXPECT_THROW(t2.get(), canceled_exception);
 }
 
 TEST(Cancel, NoCancelAtShutdown) {
@@ -83,8 +83,8 @@ TEST(Cancel, CancelUnstartedVoid) {
             {
                 std::lock_guard lock(mutex);
                 task1Started = true;
-                cv.notify_one();
             }
+            cv.notify_one();
             sleepMs(1000);
             ++tasksDone;
             return 1;
@@ -99,9 +99,9 @@ TEST(Cancel, CancelUnstartedVoid) {
         }
         // t2 is unstarted, so canceling it should succeed.
         EXPECT_TRUE(t2.try_cancel());
-        EXPECT_ANY_THROW(t2.get());
+        EXPECT_THROW(t2.get(), canceled_exception);
         EXPECT_EQ(1, t1.get());
-        EXPECT_ANY_THROW(t2.get());
+        EXPECT_THROW(t2.get(), canceled_exception);
     }
     EXPECT_EQ(1, tasksDone);
 }
@@ -134,9 +134,9 @@ TEST(Cancel, CancelUnstartedNonvoid) {
         });
         // t2 is unstarted, so canceling it should succeed.
         EXPECT_TRUE(t2.try_cancel());
-        EXPECT_ANY_THROW((void)t2.get());
+        EXPECT_THROW((void)t2.get(), canceled_exception);
         EXPECT_EQ(1, t1.get());
-        EXPECT_ANY_THROW((void)t2.get());
+        EXPECT_THROW((void)t2.get(), canceled_exception);
     }
     EXPECT_EQ(1, tasksDone);
 }
@@ -172,10 +172,10 @@ TEST(Cancel, CancelNonvoidDuringWait) {
         });
         // t2 is unstarted, so canceling it should succeed.
         EXPECT_TRUE(t2.try_cancel());
-        EXPECT_ANY_THROW((void)waitTask.get());
-        EXPECT_ANY_THROW((void)t2.get());
+        EXPECT_THROW((void)waitTask.get(), canceled_exception);
+        EXPECT_THROW((void)t2.get(), canceled_exception);
         EXPECT_EQ(1, t1.get());
-        EXPECT_ANY_THROW((void)t2.get());
+        EXPECT_THROW((void)t2.get(), canceled_exception);
     }
     EXPECT_EQ(1, tasksDone);
 }
@@ -210,10 +210,10 @@ TEST(Cancel, CancelVoidDuringWait) {
         });
         // t2 is unstarted, so canceling it should succeed.
         EXPECT_TRUE(t2.try_cancel());
-        EXPECT_ANY_THROW(waitTask.get());
-        EXPECT_ANY_THROW(t2.get());
+        EXPECT_THROW(waitTask.get(), canceled_exception);
+        EXPECT_THROW(t2.get(), canceled_exception);
         EXPECT_EQ(1, t1.get());
-        EXPECT_ANY_THROW(t2.get());
+        EXPECT_THROW(t2.get(), canceled_exception);
     }
     EXPECT_EQ(1, tasksDone);
 }
@@ -257,9 +257,9 @@ TEST(Cancel, CancelNonvoidDuringWaitAll) {
         const auto endTime = std::chrono::steady_clock::now();
         const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
         EXPECT_LT(durationMs, 1500);
-        EXPECT_ANY_THROW((void)t2.get());
+        EXPECT_THROW((void)t2.get(), canceled_exception);
         EXPECT_EQ(1, t1.get());
-        EXPECT_ANY_THROW((void)t2.get());
+        EXPECT_THROW((void)t2.get(), canceled_exception);
     }
     EXPECT_EQ(1, tasksDone);
 }
@@ -301,11 +301,9 @@ TEST(Cancel, CancelVoidDuringWaitAll) {
         const auto endTime = std::chrono::steady_clock::now();
         const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
         EXPECT_LT(durationMs, 1500);
-        EXPECT_ANY_THROW(t2.get());
+        EXPECT_THROW(t2.get(), canceled_exception);
         EXPECT_NO_THROW(t1.get());
-        EXPECT_ANY_THROW(t2.get());
+        EXPECT_THROW(t2.get(), canceled_exception);
     }
     EXPECT_EQ(1, tasksDone);
 }
-
-
