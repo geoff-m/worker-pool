@@ -42,9 +42,10 @@ namespace worker_pool {
     };
 
     class canceled_exception : public std::runtime_error {
-        public:
+    public:
         explicit canceled_exception()
-            : runtime_error("Task has been canceled") {}
+            : runtime_error("Task has been canceled") {
+        }
     };
 
     class pool;
@@ -125,6 +126,7 @@ namespace worker_pool {
 
         template<typename T>
         friend class task;
+        friend class task_base;
         friend class WorkItem;
         const std::string name;
         static std::atomic<unsigned int> id;
@@ -512,23 +514,19 @@ namespace worker_pool {
 #endif
     };
 
-    /**
-      * Represents a task that has been submitted to the pool.
-      * @tparam TResult The type of the result of this task.
-      */
-    template<typename TResult>
-    class task {
+    class task_base {
         friend class pool;
+
+    protected:
         std::shared_ptr<pool::WorkItem> wi;
 
-        explicit task(const std::shared_ptr<pool::WorkItem>& wrapped)
+        explicit task_base(const std::shared_ptr<pool::WorkItem>& wrapped)
             : wi(wrapped) {
         }
 
     public:
         /**
          * Blocks until this task is complete.
-         * Rethrows whatever exception the asynchronous operation threw, if any.
          * @return The result returned from this task.
          */
         void wait() {
@@ -553,15 +551,6 @@ namespace worker_pool {
         template<class Clock, class Duration>
         bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return wi->getOwningPool().wait_until(wi, timeout_time);
-        }
-
-        /**
-         * Gets the result returned from this task, waiting if necessary.
-         * @return The result returned from this task.
-         */
-        [[nodiscard]] TResult get() {
-            wait();
-            return any_cast<TResult>(wi->getResult());
         }
 
         /**
@@ -628,114 +617,48 @@ namespace worker_pool {
     };
 
     /**
+      * Represents a task that has been submitted to the pool.
+      * @tparam TResult The type of the result of this task.
+      */
+    template<typename TResult>
+    class task : public task_base {
+        friend class pool;
+
+        explicit task(const std::shared_ptr<pool::WorkItem>& wrapped)
+            : task_base(wrapped) {
+        }
+
+    public:
+        /**
+         * Gets the result returned from this task, waiting if necessary.
+         * If the task threw an exception, rethrows it.
+         * @return The result returned from this task.
+         */
+        [[nodiscard]] TResult get() {
+            wait();
+            return any_cast<TResult>(wi->getResult());
+        }
+    };
+
+    /**
     * Represents a task that has been submitted to the pool.
     */
     template<>
-    class task<void> {
+    class task<void> : public task_base {
         friend class pool;
-        std::shared_ptr<pool::WorkItem> wi;
 
         explicit task(const std::shared_ptr<pool::WorkItem>& wrapped)
-            : wi(wrapped) {
+            : task_base(wrapped) {
         }
 
     public:
         /**
          * Blocks until this task is complete.
-         * Rethrows whatever exception the asynchronous operation threw, if any.
+         * If the task threw an exception, rethrows it.
          */
         void get() {
             wait();
             (void) wi->getResult();
-        }
-
-        /**
-         * Blocks until this task is complete.
-         */
-        void wait() {
-            wi->getOwningPool().wait(wi);
-        }
-
-        /**
-         * Blocks until this task is complete or a timeout occurs.
-         * @param timeout_duration The maximum amount of time to wait.
-         * @return False if and only if timeout occurred.
-         */
-        template<class Rep, class Period>
-        bool wait_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return wi->getOwningPool().wait_for(wi, timeout_duration);
-        }
-
-        /**
-         * Blocks until this task is complete or a timeout occurs.
-         * @param timeout_time The point at which to stop waiting.
-         * @return False if and only if timeout occurred.
-         */
-        template<class Clock, class Duration>
-        bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
-            return wi->getOwningPool().wait_until(wi, timeout_time);
-        }
-
-        /**
-        * Gets the name of this task.
-        * @return The name of this task.
-        */
-        [[nodiscard]] std::string get_name() const {
-            return wi->getName();
-        }
-
-        /**
-         * Attempts to cancel this task.
-         * This will succeed only if the task is unstarted.
-         * @return True if this task transitioned from unstarted to canceled.
-         */
-        bool try_cancel() {
-            auto& pool = wi->getOwningPool();
-            std::lock_guard lock(pool.unstartedMutex);
-            if (!wi->trySetCanceled())
-                return false;
-            pool.unstarted.erase(wi->getIterator());
-            return true;
-        }
-
-        /**
-         * Gets the current state of this task. Does not block.
-         * @return The state of this task.
-         */
-        [[nodiscard]] TaskState get_state() const {
-            return wi->getState();
-        }
-
-        /**
-         * Checks whether this task is unstarted. Does not block.
-         * @return A Boolean value indicating whether this task is unstarted.
-         */
-        [[nodiscard]] bool is_unstarted() const {
-            return get_state() == TaskState::Unstarted;
-        }
-
-        /**
-         * Checks whether this task is executing. Does not block.
-         * @return A Boolean value indicating whether this task is executing.
-         */
-        [[nodiscard]] bool is_executing() const {
-            return get_state() == TaskState::Executing;
-        }
-
-        /**
-         * Checks whether this task is done. Does not block.
-         * @return A Boolean value indicating whether this task is done.
-         */
-        [[nodiscard]] bool is_done() const {
-            return get_state() == TaskState::Done;
-        }
-
-        /**
-         * Checks whether this task is canceled. Does not block.
-         * @return A Boolean value indicating whether this task is canceled.
-         */
-        [[nodiscard]] bool is_canceled() const {
-            return get_state() == TaskState::Canceled;
         }
     };
 
