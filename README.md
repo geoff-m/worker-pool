@@ -6,6 +6,7 @@ WorkerPool is a thread pool. It aims to be easy to use.
 
 - Configurable degree of parallelism
 - Simple API; `worker_pool::task` resembles `std::shared_future`
+- No dependencies other than C++20
 - Tasks can be void or have copy-constructible output
 - Tasks can create and await other tasks
 - The pool can await multiple tasks at once
@@ -134,7 +135,7 @@ the functions `is_unstarted()`, `is_executing()`, `is_done()`, `is_canceled()`.
 
 | TaskState     | Meaning                                       | Behavior of wait()   | Behavior of get()                                                    |
 |---------------|-----------------------------------------------|----------------------|----------------------------------------------------------------------|
-| **Unstarted** | Initial state. The task is queued in pool.    | Blocks.              | Blocks.                                                              |
+| **Unstarted** | Initial state. The task is queued in a pool.  | Blocks.              | Blocks.                                                              |
 | **Executing** | The task is being executed.                   | Blocks.              | Blocks.                                                              |
 | **Done**      | The task's execution is complete.             | Returns immediately. | Immediately returns the task's result (or throws if the task threw). |
 | **Canceled**  | The task was canceled before execution began. | Returns immediately. | Immediately throws an exception indicating the task was canceled.    |
