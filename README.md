@@ -127,6 +127,16 @@ else
     puts("Not all tasks are done");
 ```
 
+### Task states
+A task is always in one of four states. You can query a task's state any time using `get_state()`.
+
+| TaskState     | Meaning                                      | Behavior of wait()  | Behavior of get()                                                   |
+|---------------|----------------------------------------------|---------------------|---------------------------------------------------------------------|
+| **Unstarted** | The initial state of every task              | Blocks              | Blocks                                                              |
+| **Executing** | The task is being executed                   | Blocks              | Blocks                                                              |
+| **Done**      | The task's execution is complete             | Returns immediately | Immediately returns the task's result (or throws if the task threw) |
+| **Canceled**  | The task was canceled before execution began | Returns immediately | Immediately throws an exception indicating the task was canceled    |
+
 ### Throwing exceptions from tasks
 
 Exceptions with tasks work like you'd expect from `std::shared_future`.
