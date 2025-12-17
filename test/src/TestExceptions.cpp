@@ -36,6 +36,7 @@ TEST(Exceptions, RuntimeExceptionFromVoidTask) {
         throw std::runtime_error(EXPECTED_STRING);
     });
     task.wait();
+    EXPECT_EQ(TaskState::Done, task.get_state());
     assertThrows([&] { task.get(); }, EXPECTED_STRING);
     assertThrows([&] { task.get(); }, EXPECTED_STRING);
 }
@@ -47,6 +48,7 @@ TEST(Exceptions, IntFromVoidTask) {
         throw EXPECTED_INT;
     });
     task.wait();
+    EXPECT_EQ(TaskState::Done, task.get_state());
     assertThrows([&] { task.get(); }, EXPECTED_INT);
     assertThrows([&] { task.get(); }, EXPECTED_INT);
 }
@@ -60,6 +62,7 @@ TEST(Exceptions, RuntimeExceptionFromIntTask) {
     });
     sleepMs(1000);
     task.wait();
+    EXPECT_EQ(TaskState::Done, task.get_state());
     assertThrows([&] { (void)task.get(); }, EXPECTED_STRING);
     assertThrows([&] { (void)task.get(); }, EXPECTED_STRING);
 }
@@ -72,6 +75,7 @@ TEST(Exceptions, IntFromIntTask) {
         return 123;
     });
     task.wait();
+    EXPECT_EQ(TaskState::Done, task.get_state());
     assertThrows([&] { (void)task.get(); }, EXPECTED_INT);
     assertThrows([&] { (void)task.get(); }, EXPECTED_INT);
 }
