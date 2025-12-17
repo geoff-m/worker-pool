@@ -129,3 +129,45 @@ TEST(GetState, Canceled) {
     EXPECT_NO_THROW(t1.get());
     expectDone(t1);
 }
+
+TEST(GetState, RuntimeExceptionFromVoidTask) {
+    pool pool;
+    constexpr auto EXPECTED_STRING = "Hello";
+    auto task = pool.add([] {
+        throw std::runtime_error(EXPECTED_STRING);
+    });
+    task.wait();
+    expectDone(task);
+}
+
+TEST(GetState, IntFromVoidTask) {
+    pool pool;
+    constexpr int EXPECTED_INT = 7865;
+    auto task = pool.add([] {
+        throw EXPECTED_INT;
+    });
+    task.wait();
+    EXPECT_EQ(TaskState::Done, task.get_state());
+    expectDone(task);
+}
+
+TEST(GetState, Self) {
+    pool pool;
+    std::mutex mutex;
+    std::condition_variable cv;
+    task<void>* taskPtr;
+    auto task = pool.add([&] {
+        {
+            std::unique_lock lock(mutex);
+            cv.wait(lock, [&] {
+                return taskPtr != nullptr;
+            });
+        }
+        expectExecuting(*taskPtr);
+    });
+    {
+        std::lock_guard lock(mutex);
+        taskPtr = &task;
+    }
+    cv.notify_one();
+}
