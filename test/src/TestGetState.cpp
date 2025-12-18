@@ -156,7 +156,6 @@ TEST(GetState, Self) {
     std::mutex mutex;
     std::condition_variable cv;
     task<void>* taskPtr;
-    bool taskDone = false;
     auto task = pool.add([&] {
         {
             std::unique_lock lock(mutex);
@@ -165,19 +164,11 @@ TEST(GetState, Self) {
             });
         }
         expectExecuting(*taskPtr);
-        {
-            std::lock_guard lock(mutex);
-            taskDone = true;
-        }
-        cv.notify_one();
     });
     {
         std::lock_guard lock(mutex);
         taskPtr = &task;
     }
     cv.notify_one();
-    {
-        std::unique_lock lock(mutex);
-        cv.wait(lock, [&] { return taskDone; });
-    }
+    task.wait();
 }
