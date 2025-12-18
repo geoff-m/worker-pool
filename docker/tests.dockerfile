@@ -5,11 +5,6 @@ ARG REPO_ROOT=/usr/local/worker-pool
 ARG CMAKE_BUILD_TYPE
 WORKDIR $REPO_ROOT
 
-# Need to have netcat to detect apt proxy.
-RUN apt-get update && apt-get install -y netcat-traditional
-COPY docker/apt-proxy/detect-apt-proxy.sh /usr/local/bin/
-COPY docker/apt-proxy/99proxy.conf /etc/apt/apt.conf.d/99proxy.conf
-
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg
