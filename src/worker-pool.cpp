@@ -150,7 +150,7 @@ namespace worker_pool {
     }
 
     bool pool::WorkItem::trySetExecuting() {
-        TaskState oldState = TaskState::Unstarted;
+        auto oldState = TaskState::Unstarted;
         if (state.compare_exchange_strong(oldState, TaskState::Executing)) {
             //log("trySetExecuting succeeded for task %s", getName().c_str());
             return true;
@@ -160,12 +160,12 @@ namespace worker_pool {
     }
 
     bool pool::WorkItem::trySetCanceled() {
-        TaskState oldState = TaskState::Unstarted;
+        auto oldState = TaskState::Unstarted;
         if (!state.compare_exchange_strong(oldState, TaskState::Canceled))
             return false;
-        // This will throw an exception to store that we have canceled.
+        // This will throw an exception indicating we're canceled.
+        // This is needed so that the packaged_task/future is marked complete.
         execute();
-        state.store(TaskState::Canceled, std::memory_order::release);
         return true;
     }
 
