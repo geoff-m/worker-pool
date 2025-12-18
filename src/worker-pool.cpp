@@ -250,8 +250,12 @@ namespace worker_pool {
 #else
                 std::string msg = "The requested wait would deadlock: ";
                 msg += executingWorkItem->getName();
-                msg += " would wait for itself via ";
-                msg += formatWaitChain(toAwait);
+                if (waitingFor == &toAwait) {
+                    msg += " would wait for itself";
+                } else {
+                    msg += " would wait for itself via ";
+                    msg += formatWaitChain(toAwait);
+                }
                 log("Throwing exception: %s", msg.c_str());
                 throw deadlock_exception(msg);
 #endif
