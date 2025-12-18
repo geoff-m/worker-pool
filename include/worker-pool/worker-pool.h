@@ -74,6 +74,30 @@ namespace worker_pool {
      * The pool tends to begin executing tasks in FIFO order, but this is not guaranteed.
      */
     class pool {
+        class WorkItem;
+        friend class WorkItem;
+        std::condition_variable cv;
+        std::mutex unstartedMutex;
+        std::list<std::shared_ptr<WorkItem>> unstarted;
+
+        template<typename T>
+        friend class task;
+        friend class task_base;
+        const std::string name;
+        static std::atomic<unsigned int> id;
+        std::atomic<size_t> addedTaskCount = 0;
+        std::mutex threadsMutex;
+        std::atomic<unsigned int> readyThreads; // The number of threads that are doing work or are ready to do so.
+        std::list<std::thread> threads;
+        const unsigned int targetParallelism;
+        const unsigned int maxWaiterThreads;
+        const std::function<std::thread(std::function<void()>)> threadFactory;
+        const bool allowWorkOffPoolThreads;
+
+        [[nodiscard]] static std::string generatePoolName();
+
+        [[nodiscard]] std::string generateTaskName();
+
         class WorkItem {
             friend class pool;
 
@@ -85,7 +109,7 @@ namespace worker_pool {
             std::packaged_task<std::any()> task;
             std::shared_future<std::any> future;
             const std::string name;
-            using TIterator = std::list<std::shared_ptr<WorkItem>>::iterator;
+            using TIterator = decltype(pool::unstarted)::iterator;
             TIterator thisIterator;
 
         public:
@@ -124,24 +148,37 @@ namespace worker_pool {
 #endif
         };
 
-        template<typename T>
-        friend class task;
-        friend class task_base;
-        friend class WorkItem;
-        const std::string name;
-        static std::atomic<unsigned int> id;
-        std::atomic<size_t> addedTaskCount = 0;
-        std::mutex threadsMutex;
-        std::atomic<unsigned int> readyThreads; // The number of threads that are doing work or are ready to do so.
-        std::list<std::thread> threads;
-        const unsigned int targetParallelism;
-        const unsigned int maxWaiterThreads;
-        const std::function<std::thread(std::function<void()>)> threadFactory;
-        const bool allowWorkOffPoolThreads;
+        std::atomic<bool> stopping = false;
 
-        [[nodiscard]] static std::string generatePoolName();
+        void throwIfStopped() const;
 
-        [[nodiscard]] std::string generateTaskName();
+        void unsafeAddThread();
+
+        [[nodiscard]] static unsigned int detectParallelism();
+
+        size_t lastItemId = 0;
+
+        [[nodiscard]] bool threadIsExtra() const;
+
+        [[nodiscard]] bool threadShouldExit() const;
+
+        void work();
+
+        void wait(std::shared_ptr<WorkItem> workItem);
+
+        void maybeAddThreadBeforeWait(const WorkItem& workItem);
+
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
+        static thread_local WorkItem* executingWorkItem;
+
+        static void checkDeadlock(WorkItem& toAwait);
+
+        [[nodiscard]] static std::string formatWaitChain(const WorkItem& wi);
+
+#define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait) checkDeadlock(toAwait)
+#else
+#define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait)
+#endif
 
     public:
         /**
@@ -258,19 +295,6 @@ namespace worker_pool {
 
         [[nodiscard]] std::string get_name() const;
 
-    private:
-        std::condition_variable cv;
-        std::mutex unstartedMutex;
-        std::list<std::shared_ptr<WorkItem>> unstarted;
-        std::atomic<bool> stopping = false;
-
-        void throwIfStopped() const;
-
-        void unsafeAddThread();
-
-        [[nodiscard]] static unsigned int detectParallelism();
-
-    public:
         /**
          * Adds a callback to the pool.
          * @tparam TCallback Type of the callback function.
@@ -320,18 +344,6 @@ namespace worker_pool {
         auto add(std::string name, TCallback callback, TArgs... args) -> task<void>;
 
     private:
-        size_t lastItemId = 0;
-
-        [[nodiscard]] bool threadIsExtra() const;
-
-        [[nodiscard]] bool threadShouldExit() const;
-
-        void work();
-
-        void wait(std::shared_ptr<WorkItem> workItem);
-
-        void maybeAddThreadBeforeWait(const WorkItem& workItem);
-
         template<class Rep, class Period>
         bool wait_for(std::shared_ptr<WorkItem> workItem, const std::chrono::duration<Rep, Period>& timeout_duration) {
             return wait_until(workItem, std::chrono::steady_clock::now() + timeout_duration);
@@ -499,19 +511,6 @@ namespace worker_pool {
         static bool wait_all_until(IterableTasks tasks, const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return naive_wait_all_until(tasks.begin(), tasks.end(), timeout_time);
         }
-
-    private:
-#ifdef WORKER_POOL_DEADLOCK_DETECTION
-        static thread_local WorkItem* executingWorkItem;
-
-        static void checkDeadlock(WorkItem& toAwait);
-
-        [[nodiscard]] static std::string formatWaitChain(const WorkItem& wi);
-
-#define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait) checkDeadlock(toAwait)
-#else
-#define FAIL_IF_WAITING_WILL_DEADLOCK(toAwait)
-#endif
     };
 
     class task_base {
