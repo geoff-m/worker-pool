@@ -7,6 +7,7 @@ TEST(DetectThreads, ParallelismAtLeastHardwareConcurrency) {
     const auto EXPECTED_THREADS = std::max(1u, std::thread::hardware_concurrency());
     pool pool;
     std::vector<task<void>> tasks;
+    tasks.reserve(EXPECTED_THREADS);
     const auto startTime = std::chrono::steady_clock::now();
     for (auto i = 0u; i < EXPECTED_THREADS; i++) {
         tasks.emplace_back(pool.add(sleepMs, 1000));

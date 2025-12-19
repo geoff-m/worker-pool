@@ -200,7 +200,7 @@ namespace worker_pool {
                   return threadFactory(callback);
               }),
               allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
-            if (targetParallelism <= 0)
+            if (targetParallelism < 1)
                 throw std::invalid_argument("Target parallelism must be at least 1");
             std::lock_guard lock(threadsMutex);
             for (unsigned int i = 0; i < targetParallelism; i++)
@@ -304,7 +304,7 @@ namespace worker_pool {
          * @return A task representing the work associated with this call.
          */
         template<typename TCallback, typename... TArgs>
-        auto add(TCallback callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))>;
+        auto add(const TCallback& callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))>;
 
         /**
          * Adds a callback to the pool.
@@ -316,7 +316,7 @@ namespace worker_pool {
          * @return A task representing the work associated with this call.
          */
         template<typename TCallback, typename... TArgs>
-        auto add(std::string name, TCallback callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))>;
+        auto add(const std::string& name, const TCallback& callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))>;
 
         /**
          * Adds a void callback to the pool.
@@ -328,7 +328,7 @@ namespace worker_pool {
          */
         template<typename TCallback, typename... TArgs>
             requires invocable_returns_void<TCallback, TArgs...>
-        auto add(TCallback callback, TArgs... args) -> task<void>;
+        auto add(const TCallback& callback, TArgs... args) -> task<void>;
 
         /**
          * Adds a void callback to the pool.
@@ -341,15 +341,16 @@ namespace worker_pool {
          */
         template<typename TCallback, typename... TArgs>
             requires invocable_returns_void<TCallback, TArgs...>
-        auto add(std::string name, TCallback callback, TArgs... args) -> task<void>;
+        auto add(const std::string& name, const TCallback& callback, TArgs... args) -> task<void>;
 
     private:
         template<class Rep, class Period>
         bool wait_for(std::shared_ptr<WorkItem> workItem, const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return wait_until(workItem, std::chrono::steady_clock::now() + timeout_duration);
+            return wait_until(std::move(workItem), std::chrono::steady_clock::now() + timeout_duration);
         }
 
         template<class Clock, class Duration>
+        // NOLINTNEXTLINE(performance-unnecessary-value-param)
         bool wait_until(std::shared_ptr<WorkItem> workItem,
                         const std::chrono::time_point<Clock, Duration>& timeout_time) {
             auto state = workItem->state.load(std::memory_order::acquire);
@@ -662,12 +663,12 @@ namespace worker_pool {
     };
 
     template<typename TCallback, typename... TArgs>
-    auto pool::add(TCallback callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))> {
+    auto pool::add(const TCallback& callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))> {
         return add(generateTaskName(), callback, args...);
     }
 
     template<typename TCallback, typename... TArgs>
-    auto pool::add(std::string name, TCallback callback,
+    auto pool::add(const std::string& name, const TCallback& callback,
                    TArgs... args) -> task<decltype(std::invoke(callback, args...))> {
         using TResult = decltype(std::invoke(callback, args...));
         std::lock_guard lock(unstartedMutex);
@@ -695,13 +696,13 @@ namespace worker_pool {
 
     template<typename TCallback, typename... TArgs>
         requires invocable_returns_void<TCallback, TArgs...>
-    auto pool::add(TCallback callback, TArgs... args) -> task<void> {
+    auto pool::add(const TCallback& callback, TArgs... args) -> task<void> {
         return add(generateTaskName(), callback, args...);
     }
 
     template<typename TCallback, typename... TArgs>
         requires invocable_returns_void<TCallback, TArgs...>
-    auto pool::add(std::string name, TCallback callback, TArgs... args) -> task<void> {
+    auto pool::add(const std::string& name, const TCallback& callback, TArgs... args) -> task<void> {
         std::lock_guard lock(unstartedMutex);
         throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this, lastItemId++, name);
