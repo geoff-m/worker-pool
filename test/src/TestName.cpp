@@ -62,8 +62,8 @@ TEST(Name, PoolAuto) {
     pool p6(1, 1);
     pool p7(1, 1, false);
     pool p8(1, 1, false);
-    pool p9(1, 1, [](const std::function<void()> cb) { return std::thread(cb); });
-    pool p10(1, 1, [](const std::function<void()> cb) { return std::thread(cb); });
+    pool p9(1, 1, [](const std::function<void()>& cb) { return std::thread(cb); });
+    pool p10(1, 1, [](const std::function<void()>& cb) { return std::thread(cb); });
 
     EXPECT_FALSE(p1.get_name().empty());
     EXPECT_FALSE(p2.get_name().empty());

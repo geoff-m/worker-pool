@@ -29,3 +29,24 @@ jobs:
           outputs: type=cacheonly
           build-args: |
             CMAKE_BUILD_TYPE=${{matrix.cmake-build-type}}
+
+  lint:
+    name: Lint with clang-tidy
+    runs-on: [ 'ubuntu-latest' ]
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and run inside container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/clang-tidy.dockerfile
+          outputs: type=cacheonly
+          build-args: |
+            CMAKE_BUILD_TYPE=Debug

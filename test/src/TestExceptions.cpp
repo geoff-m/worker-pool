@@ -45,6 +45,7 @@ TEST(Exceptions, IntFromVoidTask) {
     pool pool;
     constexpr int EXPECTED_INT = 7865;
     auto task = pool.add([] {
+        // NOLINTNEXTLINE
         throw EXPECTED_INT;
     });
     task.wait();
@@ -71,6 +72,7 @@ TEST(Exceptions, IntFromIntTask) {
     pool pool;
     constexpr int EXPECTED_INT = 7865;
     auto task = pool.add([] {
+        // NOLINTNEXTLINE
         throw EXPECTED_INT;
         return 123;
     });

@@ -7,7 +7,9 @@ TEST(PreventWorkOffPoolThreads, WaitAll) {
     pool pool(5, 0, false);
     const auto mainThreadId = std::this_thread::get_id();
     std::vector<task<void>> tasks;
-    for (int i = 0; i < 10; ++i) {
+    constexpr int TASK_COUNT = 10;
+    tasks.reserve(TASK_COUNT);
+    for (int i = 0; i < TASK_COUNT; ++i) {
         tasks.emplace_back(pool.add([mainThreadId] {
             sleepMs(500);
             ASSERT_NE(mainThreadId, std::this_thread::get_id());
@@ -20,7 +22,9 @@ TEST(PreventWorkOffPoolThreads, WaitOne) {
     pool pool(1, 0, false);
     const auto mainThreadId = std::this_thread::get_id();
     std::vector<task<void>> tasks;
-    for (int i = 0; i < 2; ++i) {
+    constexpr int TASK_COUNT = 2;
+    tasks.reserve(TASK_COUNT);
+    for (int i = 0; i < TASK_COUNT; ++i) {
         tasks.emplace_back(pool.add([mainThreadId] {
             sleepMs(500);
             ASSERT_NE(mainThreadId, std::this_thread::get_id());

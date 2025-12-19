@@ -265,6 +265,7 @@ namespace worker_pool {
     }
 #endif
 
+    // NOLINTNEXTLINE(performance-unnecessary-value-param)
     void pool::wait(std::shared_ptr<WorkItem> workItem) {
 #ifdef WORKER_POOL_DEADLOCK_DETECTION
         std::unique_lock deadlockCheckLock(deadlockCheckMutex, std::defer_lock);
@@ -355,7 +356,7 @@ deadlockCheckLock.unlock(); \
         threadOwningPool = this;
         while (true) {
             std::unique_lock unstartedLock(unstartedMutex);
-            cv.wait(unstartedLock, [&]() {
+            cv.wait(unstartedLock, [&] {
                 return !unstarted.empty() || threadShouldExit();
             });
 

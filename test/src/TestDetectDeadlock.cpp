@@ -136,6 +136,7 @@ public:
             inverseIndices[i] = i;
         }
         // Randomize order that we create tasks in.
+        // NOLINTNEXTLINE(cert-msc51-cpp)
         std::mt19937 engine(1337);
         std::uniform_int_distribution<int> dist(0, length - 1);
         for (int i = 0; i < length; i++) {
