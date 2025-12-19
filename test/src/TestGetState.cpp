@@ -156,7 +156,7 @@ TEST(GetState, Self) {
     pool pool;
     std::mutex mutex;
     std::condition_variable cv;
-    task<void>* taskPtr;
+    std::atomic<task<void>*> taskPtr;
     auto task = pool.add([&] {
         {
             std::unique_lock lock(mutex);
