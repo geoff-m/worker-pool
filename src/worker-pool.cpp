@@ -86,7 +86,6 @@ namespace worker_pool {
 
     pool::~pool() {
         shutDown(false);
-        //std::lock_guard lock(threadsMutex);
         for (auto& thread: threads) {
             thread.join();
         }
