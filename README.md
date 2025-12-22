@@ -223,7 +223,8 @@ if (t.try_cancel()) {
 You can provide your own threads for use by the pool.
 To do so, provide a callable that takes the pool's `std::function<void()>` callback
 and returns a `std::thread` that executes it.
-The pool will execute this callback whenever it wants to create a thread.
+In the pool's constructor, this callback will be used to create all the threads
+the pool will ever use.
 
 ```c++
 #include <pthread.h>
