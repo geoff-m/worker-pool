@@ -91,7 +91,6 @@ namespace worker_pool {
         std::list<std::thread> threads;
         const unsigned int targetParallelism;
         const unsigned int maxWaiterThreads;
-        const std::function<std::thread(std::function<void()>)> threadFactory;
         const bool allowWorkOffPoolThreads;
 
         [[nodiscard]] static std::string generatePoolName();
@@ -152,25 +151,21 @@ namespace worker_pool {
 
         void throwIfStopped() const;
 
-        void unsafeAddThread();
-
         [[nodiscard]] static unsigned int detectParallelism();
 
         size_t lastItemId = 0;
 
         [[nodiscard]] bool threadIsExtra() const;
 
-        [[nodiscard]] bool threadShouldExit() const;
+        std::atomic<int> workingThreads = 0;
 
         void work();
 
         void wait(std::shared_ptr<WorkItem> workItem);
 
-        void maybeAddThreadBeforeWait(const WorkItem& workItem);
-
-#ifdef WORKER_POOL_DEADLOCK_DETECTION
         static thread_local WorkItem* executingWorkItem;
 
+        #ifdef WORKER_POOL_DEADLOCK_DETECTION
         static void checkDeadlock(WorkItem& toAwait);
 
         [[nodiscard]] static std::string formatWaitChain(const WorkItem& wi);
@@ -191,20 +186,21 @@ namespace worker_pool {
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
         template<typename ThreadFactory>
-        pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads, ThreadFactory threadFactory,
+        pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads,
+             ThreadFactory&& threadFactory,
              bool allowWorkOffPoolThreads = true)
             : name(name.empty() ? generatePoolName() : std::move(name)),
               targetParallelism(targetParallelism),
               maxWaiterThreads(extraThreads),
-              threadFactory([&threadFactory](const std::function<void()>& callback) {
-                  return threadFactory(callback);
-              }),
               allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
             if (targetParallelism < 1)
                 throw std::invalid_argument("Target parallelism must be at least 1");
             std::lock_guard lock(threadsMutex);
-            for (unsigned int i = 0; i < targetParallelism; i++)
-                unsafeAddThread();
+            const auto totalThreads = targetParallelism + extraThreads;
+            readyThreads.store(totalThreads);
+            for (unsigned int i = 0; i < totalThreads; i++) {
+                threads.emplace_back(threadFactory([this] { work(); }));
+            }
         }
 
         /**
@@ -216,7 +212,7 @@ namespace worker_pool {
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
         template<typename ThreadFactory>
-        pool(unsigned int targetParallelism, unsigned int extraThreads, ThreadFactory threadFactory,
+        pool(unsigned int targetParallelism, unsigned int extraThreads, ThreadFactory&& threadFactory,
              bool allowWorkOffPoolThreads = true)
             : pool("", targetParallelism, extraThreads, threadFactory, allowWorkOffPoolThreads) {
         }
@@ -316,7 +312,8 @@ namespace worker_pool {
          * @return A task representing the work associated with this call.
          */
         template<typename TCallback, typename... TArgs>
-        auto add(const std::string& name, const TCallback& callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))>;
+        auto add(const std::string& name, const TCallback& callback,
+                 TArgs... args) -> task<decltype(std::invoke(callback, args...))>;
 
         /**
          * Adds a void callback to the pool.
@@ -359,9 +356,14 @@ namespace worker_pool {
             if (state == TaskState::Done)
                 return true;
 
-            maybeAddThreadBeforeWait(*workItem);
             // Block this thread.
+            if (executingWorkItem) {
+                --readyThreads;
+            }
             const auto status = workItem->future.wait_until(timeout_time);
+            if (executingWorkItem) {
+                ++readyThreads;
+            }
 
             log("Done with timed wait for %s (task is %s)",
                 workItem->getName().c_str(),

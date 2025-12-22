@@ -117,11 +117,6 @@ namespace worker_pool {
             throw std::runtime_error("Cannot add to stopped thread WorkerPool");
     }
 
-    void pool::unsafeAddThread() {
-        readyThreads.fetch_add(1);
-        threads.emplace_back(threadFactory([this] { work(); }));
-    }
-
     pool::WorkItem::WorkItem(pool& owner,
                              size_t id,
                              std::string name)
@@ -170,15 +165,11 @@ namespace worker_pool {
     }
 
     void pool::WorkItem::execute() {
-#ifdef WORKER_POOL_DEADLOCK_DETECTION
         auto* oldExecuting = executingWorkItem;
         executingWorkItem = this;
-#endif
         log("Beginning task %s", getName().c_str());
         task();
-#ifdef WORKER_POOL_DEADLOCK_DETECTION
         executingWorkItem = oldExecuting;
-#endif
         log("Finished task %s", getName().c_str());
     }
 
@@ -202,24 +193,9 @@ namespace worker_pool {
         return state.load(std::memory_order::acquire);
     }
 
-    void pool::maybeAddThreadBeforeWait(const WorkItem& workItem) {
-        if (&workItem.owningPool == this && threadOwningPool == this) {
-            // We are about to block a pool thread, so consider creating an extra thread.
-            if (readyThreads.load(std::memory_order::acquire) < targetParallelism + maxWaiterThreads) {
-                // We have quota to create an extra thread to make up for waiting.
-                log("Creating extra thread");
-                std::lock_guard lock(threadsMutex);
-                unsafeAddThread();
-            }
-            //log("Not creating extra thread because no quota");
-        } else {
-            //log("Not creating extra thread because waiter is not a pool thread");
-        }
-    }
-
-#ifdef WORKER_POOL_DEADLOCK_DETECTION
     thread_local pool::WorkItem* pool::executingWorkItem = nullptr;
 
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
     std::string pool::formatWaitChain(const WorkItem& wi) {
         std::stringstream ss;
         ss << wi.getName();
@@ -333,9 +309,14 @@ deadlockCheckLock.unlock(); \
                     // Waiting for an item that's currently being executed.
                     FAIL_IF_WAITING_WILL_DEADLOCK(*workItem);
                     PUSH_WAITING_FOR;
-                    maybeAddThreadBeforeWait(*workItem);
+                    if (executingWorkItem) {
+                        --readyThreads;
+                    }
                     // Block this thread.
                     workItem->future.wait();
+                    if (executingWorkItem) {
+                        ++readyThreads;
+                    }
                     POP_WAITING_FOR;
                     assert(workItem->getState() != TaskState::Executing);
                     return;
@@ -344,25 +325,19 @@ deadlockCheckLock.unlock(); \
         }
     }
 
-    bool pool::threadIsExtra() const {
-        return readyThreads.load(std::memory_order::acquire) > targetParallelism;
-    }
-
-    bool pool::threadShouldExit() const {
-        return stopping.load(std::memory_order::acquire) || threadIsExtra();
-    }
-
     void pool::work() {
         threadOwningPool = this;
         while (true) {
             std::unique_lock unstartedLock(unstartedMutex);
             cv.wait(unstartedLock, [&] {
-                return !unstarted.empty() || threadShouldExit();
+                return (!unstarted.empty() && workingThreads.load(std::memory_order::acquire) < targetParallelism)
+                || stopping.load(std::memory_order::acquire);
             });
 
             if (stopping.load(std::memory_order::acquire) && unstarted.empty())
                 return;
 
+            ++workingThreads;
             // Take the first item that we can successfully mark as executing.
             auto item = std::find_if(unstarted.begin(), unstarted.end(),
                                      [](const std::shared_ptr<WorkItem>& wi) {
@@ -371,6 +346,7 @@ deadlockCheckLock.unlock(); \
             if (item == unstarted.end()) {
                 // Failed to mark any item as executing.
                 std::this_thread::yield();
+                --workingThreads;
                 continue;
             }
             // Copy the value because we're about to use it
@@ -380,6 +356,7 @@ deadlockCheckLock.unlock(); \
             unstarted.erase(item);
             unstartedLock.unlock();
             itemValue->execute();
+            --workingThreads;
         }
     }
 }
