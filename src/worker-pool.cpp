@@ -86,7 +86,7 @@ namespace worker_pool {
 
     pool::~pool() {
         shutDown(false);
-        std::lock_guard lock(threadsMutex);
+        //std::lock_guard lock(threadsMutex);
         for (auto& thread: threads) {
             thread.join();
         }
@@ -97,7 +97,7 @@ namespace worker_pool {
         if (!stopping.compare_exchange_strong(expected, true))
             return;
         {
-            std::lock_guard lock(unstartedMutex);
+            std::scoped_lock lock(threadsMutex, unstartedMutex);
             stopping.store(true, std::memory_order::release);
             if (cancelUnstarted) {
                 for (const auto& wi: unstarted)
@@ -105,7 +105,8 @@ namespace worker_pool {
                 unstarted.clear();
             }
         }
-        cv.notify_all();
+        threadsCv.notify_all();
+        unstartedCv.notify_all();
     }
 
     std::string pool::get_name() const {
@@ -282,7 +283,14 @@ deadlockCheckLock.unlock(); \
                     FAIL_IF_WAITING_WILL_DEADLOCK(*workItem);
                     if (!allowWorkOffPoolThreads && threadOwningPool != this) {
                         PUSH_WAITING_FOR;
+                        if (executingWorkItem && threadOwningPool == this) {
+                            --workingThreads;
+                            threadsCv.notify_one();
+                        }
                         workItem->future.wait();
+                        if (executingWorkItem && threadOwningPool == this) {
+                            ++workingThreads;
+                        }
                         POP_WAITING_FOR;
                         assert(workItem->getState() != TaskState::Executing);
                         return;
@@ -309,13 +317,14 @@ deadlockCheckLock.unlock(); \
                     // Waiting for an item that's currently being executed.
                     FAIL_IF_WAITING_WILL_DEADLOCK(*workItem);
                     PUSH_WAITING_FOR;
-                    if (executingWorkItem) {
-                        --readyThreads;
+                    if (executingWorkItem && threadOwningPool == this) {
+                        --workingThreads;
+                        threadsCv.notify_one();
                     }
                     // Block this thread.
                     workItem->future.wait();
-                    if (executingWorkItem) {
-                        ++readyThreads;
+                    if (executingWorkItem && threadOwningPool == this) {
+                        ++workingThreads;
                     }
                     POP_WAITING_FOR;
                     assert(workItem->getState() != TaskState::Executing);
@@ -328,16 +337,29 @@ deadlockCheckLock.unlock(); \
     void pool::work() {
         threadOwningPool = this;
         while (true) {
+            // Wait if this thread isn't needed for target parallelism.
+            {
+                std::unique_lock threadsLock(threadsMutex);
+                threadsCv.wait(threadsLock, [&] {
+                    if (workingThreads.load(std::memory_order::acquire) < targetParallelism
+                        || stopping.load(std::memory_order::acquire)) {
+                        ++workingThreads;
+                        return true;
+                    }
+                    return false;
+                });
+            }
+
+            // Wait for work to be available.
             std::unique_lock unstartedLock(unstartedMutex);
-            cv.wait(unstartedLock, [&] {
-                return (!unstarted.empty() && workingThreads.load(std::memory_order::acquire) < targetParallelism)
-                || stopping.load(std::memory_order::acquire);
+            unstartedCv.wait(unstartedLock, [&] {
+                return !unstarted.empty()
+                       || stopping.load(std::memory_order::acquire);
             });
 
             if (stopping.load(std::memory_order::acquire) && unstarted.empty())
                 return;
 
-            ++workingThreads;
             // Take the first item that we can successfully mark as executing.
             auto item = std::find_if(unstarted.begin(), unstarted.end(),
                                      [](const std::shared_ptr<WorkItem>& wi) {

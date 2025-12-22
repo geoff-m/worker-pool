@@ -76,7 +76,7 @@ namespace worker_pool {
     class pool {
         class WorkItem;
         friend class WorkItem;
-        std::condition_variable cv;
+        std::condition_variable unstartedCv;
         std::mutex unstartedMutex;
         std::list<std::shared_ptr<WorkItem>> unstarted;
 
@@ -87,7 +87,7 @@ namespace worker_pool {
         static std::atomic<unsigned int> id;
         std::atomic<size_t> addedTaskCount = 0;
         std::mutex threadsMutex;
-        std::atomic<unsigned int> readyThreads; // The number of threads that are doing work or are ready to do so.
+        std::condition_variable threadsCv;
         std::list<std::thread> threads;
         const unsigned int targetParallelism;
         const unsigned int maxWaiterThreads;
@@ -165,7 +165,7 @@ namespace worker_pool {
 
         static thread_local WorkItem* executingWorkItem;
 
-        #ifdef WORKER_POOL_DEADLOCK_DETECTION
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
         static void checkDeadlock(WorkItem& toAwait);
 
         [[nodiscard]] static std::string formatWaitChain(const WorkItem& wi);
@@ -197,7 +197,6 @@ namespace worker_pool {
                 throw std::invalid_argument("Target parallelism must be at least 1");
             std::lock_guard lock(threadsMutex);
             const auto totalThreads = targetParallelism + extraThreads;
-            readyThreads.store(totalThreads);
             for (unsigned int i = 0; i < totalThreads; i++) {
                 threads.emplace_back(threadFactory([this] { work(); }));
             }
@@ -357,12 +356,13 @@ namespace worker_pool {
                 return true;
 
             // Block this thread.
-            if (executingWorkItem) {
-                --readyThreads;
+            if (executingWorkItem && threadOwningPool == this) {
+                --workingThreads;
+                threadsCv.notify_one();
             }
             const auto status = workItem->future.wait_until(timeout_time);
-            if (executingWorkItem) {
-                ++readyThreads;
+            if (executingWorkItem && threadOwningPool == this) {
+                ++workingThreads;
             }
 
             log("Done with timed wait for %s (task is %s)",
@@ -692,7 +692,7 @@ namespace worker_pool {
         }));
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
-        cv.notify_one();
+        unstartedCv.notify_one();
         return task<TResult>(wi);
     }
 
@@ -723,7 +723,7 @@ namespace worker_pool {
         }));
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
-        cv.notify_one();
+        unstartedCv.notify_one();
         return task<void>(wi);
     }
 
