@@ -19,8 +19,7 @@ TEST(Name, NoNameNonVoid) {
 TEST(Name, VoidManual) {
     const std::string NAME = "Hello, World!";
     pool p(1);
-    auto task = p.add(NAME, [] {
-    });
+    auto task = p.add(NAME, [] {});
     EXPECT_EQ(NAME, task.get_name());
 }
 
