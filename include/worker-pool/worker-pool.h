@@ -31,6 +31,14 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                      } -> std::same_as<void>;
                                  };
 
+template<typename T>
+concept is_thread_factory = requires(T&& callback)
+{
+    {
+        callback([]{}).join()
+    } -> std::same_as<void>;
+};
+
 namespace worker_pool {
     void log([[maybe_unused]] const char* format...);
 
@@ -182,10 +190,11 @@ namespace worker_pool {
          * @param targetParallelism The target number of threads to use for simultaneous work.
          * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
          * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
-         * to create threads when needed.
+         * to create threads.
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
         template<typename ThreadFactory>
+        requires is_thread_factory<ThreadFactory>
         pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads,
              ThreadFactory&& threadFactory,
              bool allowWorkOffPoolThreads = true)
@@ -204,16 +213,49 @@ namespace worker_pool {
 
         /**
          * Creates a new pool.
+         * @param name The name for this pool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
          * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
          * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
-         * to create threads when needed.
+         * to create threads.
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
         template<typename ThreadFactory>
+        requires is_thread_factory<ThreadFactory>
+        pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads,
+             ThreadFactory& threadFactory,
+             bool allowWorkOffPoolThreads = true)
+            : pool(name, targetParallelism, extraThreads, std::move(threadFactory), allowWorkOffPoolThreads) {
+        }
+
+        /**
+         * Creates a new pool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
+         * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
+         * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
+         * to create threads.
+         * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
+         */
+        template<typename ThreadFactory>
+        requires is_thread_factory<ThreadFactory>
         pool(unsigned int targetParallelism, unsigned int extraThreads, ThreadFactory&& threadFactory,
              bool allowWorkOffPoolThreads = true)
             : pool("", targetParallelism, extraThreads, threadFactory, allowWorkOffPoolThreads) {
+        }
+
+        /**
+         * Creates a new pool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
+         * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
+         * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
+         * to create threads.
+         * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
+         */
+        template<typename ThreadFactory>
+        requires is_thread_factory<ThreadFactory>
+        pool(unsigned int targetParallelism, unsigned int extraThreads, ThreadFactory& threadFactory,
+             bool allowWorkOffPoolThreads = true)
+            : pool("", targetParallelism, extraThreads, std::move(threadFactory), allowWorkOffPoolThreads) {
         }
 
         /**
