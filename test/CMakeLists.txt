@@ -41,7 +41,7 @@ target_link_libraries(test-worker-pool
 
 target_compile_options(test-worker-pool PRIVATE
         $<$<CXX_COMPILER_ID:MSVC>:/WX>
-        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Werror -Wall -Wextra -Wpedantic>)
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Werror -Wall -Wextra -Wpedantic -fconcepts-diagnostics-depth=2>)
 
 include(GoogleTest)
 gtest_discover_tests(test-worker-pool)

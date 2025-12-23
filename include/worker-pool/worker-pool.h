@@ -32,10 +32,10 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                  };
 
 template<typename T>
-concept is_thread_factory = requires(T&& callback)
+concept is_thread_factory = requires(T factory)
 {
     {
-        callback([]{}).join()
+        factory([]{}).join()
     } -> std::same_as<void>;
 };
 
@@ -163,8 +163,6 @@ namespace worker_pool {
 
         size_t lastItemId = 0;
 
-        [[nodiscard]] bool threadIsExtra() const;
-
         std::atomic<int> workingThreads = 0;
 
         void work();
@@ -223,7 +221,7 @@ namespace worker_pool {
         template<typename ThreadFactory>
         requires is_thread_factory<ThreadFactory>
         pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads,
-             ThreadFactory& threadFactory,
+             const ThreadFactory& threadFactory,
              bool allowWorkOffPoolThreads = true)
             : pool(name, targetParallelism, extraThreads, std::move(threadFactory), allowWorkOffPoolThreads) {
         }
@@ -253,7 +251,7 @@ namespace worker_pool {
          */
         template<typename ThreadFactory>
         requires is_thread_factory<ThreadFactory>
-        pool(unsigned int targetParallelism, unsigned int extraThreads, ThreadFactory& threadFactory,
+        pool(unsigned int targetParallelism, unsigned int extraThreads, const ThreadFactory& threadFactory,
              bool allowWorkOffPoolThreads = true)
             : pool("", targetParallelism, extraThreads, std::move(threadFactory), allowWorkOffPoolThreads) {
         }
