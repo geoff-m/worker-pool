@@ -713,6 +713,7 @@ namespace worker_pool {
     auto pool::add(const std::string& name, const TCallback& callback,
                    TArgs... args) -> task<decltype(std::invoke(callback, args...))> {
         using TResult = decltype(std::invoke(callback, args...));
+        static_assert(std::is_copy_constructible_v<TResult>, "Task result must be copy constructible");
         std::lock_guard lock(unstartedMutex);
         throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this,
