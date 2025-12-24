@@ -299,27 +299,20 @@ task<void>* pt2 = nullptr;
 auto t1 = pool.add("t1", [&] {
     /* Not shown: Wait until pt2 is nonnull */
 
-    // Assume this happens after t2 calls wait.
     pt2->wait();
-    // The above call would deadlock.
-    // If this code is built with WORKER_POOL_DEADLOCK_DETECTION=On,
-    // and WORKER_POOL_DEADLOCK_DETECTION_ACTION=Throw,
-    // the call will throw an exception instead.
-    // This task doesn't catch the exception,
-    // so like any exception, it gets stored
-    // and rethrown when someone tries to get the result of this task.
 });
 
 auto t2 = pool.add("t2", [&] {
     sleep(1);
-    t1.wait(); // Assume this happens before t1 calls wait.
+    t1.wait();
 });
 pt2 = &t2;
-t1.wait(); // Not an error. t1 threw an exception, but awaiting a failed task is fine.
-t2.get(); // Not an error. t2 didn't fail; its wait for t1's termination was successful.
+
 try {
-    // This will throw because t1 failed with an exception.
+    // One of these will throw.
+    // (Which one throws is nondeterministic in this example.)
     t1.get();
+    t2.get();
 } catch (const std::exception& ex) {
     printf("Error: %s\n", ex.what());
 }
@@ -331,11 +324,11 @@ With the aforementioned CMake options set, the above code will print something l
 Error: The requested wait would deadlock: t1 would wait for itself via t2 -> t1.
 ```
 
-This message means that t2 was waiting for t1
+That message means t2 was waiting for t1
 at the time when t1 tried to start waiting for t2.
 
 If you set `WORKER_POOL_DEADLOCK_DETECTION_ACTION` = `Terminate`,
-then `wait` would call `std::terminate` instead of throwing.
+then `wait` will call `std::terminate` instead of throwing.
 
 Note that deadlock detection applies only to WorkerPool's untimed wait functions
 and does not attempt to find or prevent other kinds of deadlocks that may exist in your program.
