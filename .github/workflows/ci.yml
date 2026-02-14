@@ -32,6 +32,10 @@ jobs:
 
   lint:
     name: Lint with clang-tidy
+    if: false # Job disabled until LLVM fixes their packages
+    # https://github.com/llvm/llvm-project/issues/153385
+    # https://github.com/llvm/llvm-project/issues/180239
+    
     runs-on: [ 'ubuntu-latest' ]
     steps:
       - name: Check out repo

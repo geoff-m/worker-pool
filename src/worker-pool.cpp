@@ -16,10 +16,11 @@
 namespace worker_pool {
 #ifdef WORKER_POOL_LOGGING
     [[nodiscard]] unsigned long long getThreadId() {
+
 #ifdef _WIN32
-        return GetCurrentThreadId();
+    return GetCurrentThreadId();
 #else
-        return pthread_self();
+    return pthread_self();
 #endif
     }
 #endif
@@ -86,7 +87,7 @@ namespace worker_pool {
 
     pool::~pool() {
         shutDown(false);
-        for (auto& thread: threads) {
+        for (auto& thread : threads) {
             thread.join();
         }
     }
@@ -99,7 +100,7 @@ namespace worker_pool {
             std::scoped_lock lock(threadsMutex, unstartedMutex);
             stopping.store(true, std::memory_order::release);
             if (cancelUnstarted) {
-                for (const auto& wi: unstarted)
+                for (const auto& wi : unstarted)
                     wi->trySetCanceled();
                 unstarted.clear();
             }
@@ -131,8 +132,8 @@ namespace worker_pool {
     }
 
     void pool::WorkItem::setCallback(std::packaged_task<std::any()>&& callback) {
-        task = std::move(callback),
-                future = task.get_future().share();
+        task = std::move(callback);
+        future = task.get_future().share();
     }
 
     void pool::WorkItem::throwIfCanceled() {
@@ -147,10 +148,8 @@ namespace worker_pool {
     bool pool::WorkItem::trySetExecuting() {
         auto oldState = TaskState::Unstarted;
         if (state.compare_exchange_strong(oldState, TaskState::Executing)) {
-            //log("trySetExecuting succeeded for task %s", getName().c_str());
             return true;
         }
-        //log("trySetExecuting failed for task %s", getName().c_str());
         return false;
     }
 
@@ -222,21 +221,21 @@ namespace worker_pool {
                 waitingForNext ? waitingForNext->name.c_str() : "nothing");
             if (waitingFor == executingWorkItem) {
 #ifdef WORKER_POOL_DEADLOCK_DETECTION_TERMINATE
-                std::terminate();
+    std::terminate();
 #else
-                std::string msg = "The requested wait would deadlock: ";
-                msg += executingWorkItem->getName();
-                if (waitingFor == &toAwait) {
+    std::string msg = "The requested wait would deadlock: ";
+    msg+= executingWorkItem->getName();
+                if (waitingFor== &toAwait) {
                     msg += " would wait for itself";
                 } else {
                     msg += " would wait for itself via ";
                     msg += formatWaitChain(toAwait);
                 }
-                log("Throwing exception: %s", msg.c_str());
-                throw deadlock_exception(msg);
+    log ("Throwing exception: %s", msg.c_str());
+                throw deadlock_exception (msg);
 #endif
-            }
-            waitingFor = waitingForNext;
+    }
+    waitingFor= waitingForNext;
         }
     }
 #endif

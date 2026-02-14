@@ -8,6 +8,11 @@ RUN apt-get update && apt-get install -y \
     curl \
     gnupg
 
+# Work around https://github.com/llvm/llvm-project/issues/153385
+RUN if [ -f /usr/share/apt/default-sequoia.config ]; then \
+            sed -i 's/\(sha1\.second_preimage_resistance =\).*/\1 2027-01-01/' /usr/share/apt/default-sequoia.config; \
+fi
+
 RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /etc/apt/keyrings/llvm-snapshot.gpg \
 && chmod a+r /etc/apt/keyrings/llvm-snapshot.gpg \
 && . /etc/os-release \
