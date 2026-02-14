@@ -17,10 +17,6 @@
 #include <cstdio>
 #endif
 
-#if defined(WORKER_POOL_DEADLOCK_DETECTION_STRICT) && !defined(WORKER_POOL_DEADLOCK_DETECTION)
-#define WORKER_POOL_DEADLOCK_DETECTION
-#endif
-
 template<typename TCallback, typename... TArgs>
 concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                  requires(TCallback&& callback, TArgs&&... args)
@@ -150,7 +146,7 @@ namespace worker_pool {
 
             [[nodiscard]] TaskState getState() const;
 
-#if defined(WORKER_POOL_DEADLOCK_DETECTION) || defined(WORKER_POOL_DEADLOCK_DETECTION_STRICT)
+#if defined(WORKER_POOL_DEADLOCK_DETECTION)
             WorkItem* waitingFor = nullptr;
 #endif
         };
