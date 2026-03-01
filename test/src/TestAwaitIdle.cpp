@@ -53,9 +53,9 @@ TEST(AwaitIdle, WaitUntil4) {
 
 TEST(AwaitIdle, Wait) {
     std::atomic<bool> started = false;
-    pool pool(1);
     std::mutex mutex;
     std::condition_variable cv;
+    pool pool(1);
     const auto task = pool.add([&] {
         {
             std::lock_guard lock(mutex);
@@ -76,9 +76,9 @@ TEST(AwaitIdle, Wait) {
 
 TEST(AwaitIdle, WaitForTimeout) {
     std::atomic<bool> started = false;
-    pool pool(1);
     std::mutex mutex;
     std::condition_variable cv;
+    pool pool(1);
     const auto task = pool.add([&] {
         {
             std::lock_guard lock(mutex);
@@ -99,9 +99,9 @@ TEST(AwaitIdle, WaitForTimeout) {
 
 TEST(AwaitIdle, WaitUntilTimeout) {
     std::atomic<bool> started = false;
-    pool pool(1);
     std::mutex mutex;
     std::condition_variable cv;
+    pool pool(1);
     const auto task = pool.add([&] {
         {
             std::lock_guard lock(mutex);
@@ -121,8 +121,8 @@ TEST(AwaitIdle, WaitUntilTimeout) {
 }
 
 TEST(AwaitIdle, ReturnsAtShutDown) {
-    pool pool(1);
     constexpr auto TASK_TIME = std::chrono::milliseconds(2000);
+    pool pool(1);
     auto task = pool.add([&] { std::this_thread::sleep_for(TASK_TIME); });
     pool.shutDown();
     const auto waitStartTime = std::chrono::steady_clock::now();
@@ -136,8 +136,8 @@ TEST(AwaitIdle, ReturnsAtShutDown) {
 }
 
 TEST(AwaitIdle, ReturnsAtShutDownFor) {
-    pool pool(1);
     constexpr auto TASK_TIME = std::chrono::milliseconds(2000);
+    pool pool(1);
     auto task = pool.add([&] { std::this_thread::sleep_for(TASK_TIME); });
     pool.shutDown();
     const auto waitStartTime = std::chrono::steady_clock::now();
