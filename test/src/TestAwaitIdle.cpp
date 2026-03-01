@@ -52,8 +52,8 @@ TEST(AwaitIdle, WaitUntil4) {
 }
 
 TEST(AwaitIdle, Wait) {
-    pool pool(1);
     std::atomic<bool> started = false;
+    pool pool(1);
     std::mutex mutex;
     std::condition_variable cv;
     const auto task = pool.add([&] {
@@ -75,8 +75,8 @@ TEST(AwaitIdle, Wait) {
 }
 
 TEST(AwaitIdle, WaitForTimeout) {
-    pool pool(1);
     std::atomic<bool> started = false;
+    pool pool(1);
     std::mutex mutex;
     std::condition_variable cv;
     const auto task = pool.add([&] {
@@ -98,8 +98,8 @@ TEST(AwaitIdle, WaitForTimeout) {
 
 
 TEST(AwaitIdle, WaitUntilTimeout) {
-    pool pool(1);
     std::atomic<bool> started = false;
+    pool pool(1);
     std::mutex mutex;
     std::condition_variable cv;
     const auto task = pool.add([&] {
@@ -152,8 +152,8 @@ TEST(AwaitIdle, ReturnsAtShutDownFor) {
 
 TEST(AwaitIdle, Pipeline) {
     constexpr auto THREAD_COUNT = 2;
-    pool pool(THREAD_COUNT);
     std::atomic<int> activeTasks = 0;
+    pool pool(THREAD_COUNT);
     for (int i = 0; i < 100; i++) {
         const auto idleThreads = pool.await_idle_thread();
         EXPECT_TRUE(idleThreads >= 1 && idleThreads <= THREAD_COUNT);

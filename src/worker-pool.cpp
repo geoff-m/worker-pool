@@ -351,21 +351,36 @@ deadlockCheckLock.unlock(); \
         while (true) {
             // Wait if this thread isn't needed for target parallelism.
             {
-                std::unique_lock threadsLock(threadsMutex);
-                threadsCv.wait(threadsLock, [&] {
-                    if (workingThreads.load(std::memory_order::acquire) < targetParallelism) {
-                        ++workingThreads;
-                        return true;
-                    }
-                    return false;
-                });
+                bool shouldExit = false;
+                {
+                    std::unique_lock threadsLock(threadsMutex);
+                    threadsCv.wait(threadsLock, [&] {
+                        const bool poolIsStopping = stopping.load(std::memory_order::acquire);
+                        const bool threadIsExtra = workingThreads.load(std::memory_order::acquire) >= targetParallelism;
+                        if (poolIsStopping) [[unlikely]] {
+                            if (threadIsExtra) {
+                                shouldExit = true;
+                                return true; // we should exit immediately.
+                            } else {
+                                ++workingThreads;
+                                return true; // done waiting for threads state; begin waiting for work
+                            }
+                        } else {
+                            if (threadIsExtra) {
+                                return false; // keep waiting
+                            } else {
+                                ++workingThreads;
+                                return true; // done waiting for threads state; begin waiting for work
+                            }
+                        }
+                    });
+                }
+                if (shouldExit) {
+                    threadsCv.notify_all();
+                    return;
+                }
             }
 
-            if (stopping.load(std::memory_order::acquire) && unstarted.empty()) {
-                --workingThreads;
-                threadsCv.notify_all();
-                return;
-            }
 
             // Wait for work to be available.
             std::unique_lock unstartedLock(unstartedMutex);
@@ -394,11 +409,10 @@ deadlockCheckLock.unlock(); \
             });
 
             if (stopping.load(std::memory_order::acquire) && unstarted.empty()) {
-                --workingThreads;
                 threadsCv.notify_all();
                 return;
             }
-            
+
             // Take the first item that we can successfully mark as executing.
             auto item = std::find_if(unstarted.begin(), unstarted.end(),
                                      [](const std::shared_ptr<WorkItem>& wi) {
