@@ -31,7 +31,8 @@ template<typename T>
 concept is_thread_factory = requires(T factory)
 {
     {
-        factory([]{}).join()
+        factory([] {
+        }).join()
     } -> std::same_as<void>;
 };
 
@@ -159,7 +160,11 @@ namespace worker_pool {
 
         size_t lastItemId = 0;
 
+        // Number of threads that are not blocked in a wait.
         std::atomic<int> workingThreads = 0;
+
+        // Number of threads that are waiting for more work to be enqueued.
+        std::atomic<int> idleThreads = 0;
 
         void work();
 
@@ -188,7 +193,7 @@ namespace worker_pool {
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
         template<typename ThreadFactory>
-        requires is_thread_factory<ThreadFactory>
+            requires is_thread_factory<ThreadFactory>
         pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads,
              ThreadFactory&& threadFactory,
              bool allowWorkOffPoolThreads = true)
@@ -215,7 +220,7 @@ namespace worker_pool {
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
         template<typename ThreadFactory>
-        requires is_thread_factory<ThreadFactory>
+            requires is_thread_factory<ThreadFactory>
         pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads,
              const ThreadFactory& threadFactory,
              bool allowWorkOffPoolThreads = true)
@@ -231,7 +236,7 @@ namespace worker_pool {
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
         template<typename ThreadFactory>
-        requires is_thread_factory<ThreadFactory>
+            requires is_thread_factory<ThreadFactory>
         pool(unsigned int targetParallelism, unsigned int extraThreads, ThreadFactory&& threadFactory,
              bool allowWorkOffPoolThreads = true)
             : pool("", targetParallelism, extraThreads, threadFactory, allowWorkOffPoolThreads) {
@@ -246,7 +251,7 @@ namespace worker_pool {
          * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
          */
         template<typename ThreadFactory>
-        requires is_thread_factory<ThreadFactory>
+            requires is_thread_factory<ThreadFactory>
         pool(unsigned int targetParallelism, unsigned int extraThreads, const ThreadFactory& threadFactory,
              bool allowWorkOffPoolThreads = true)
             : pool("", targetParallelism, extraThreads, std::move(threadFactory), allowWorkOffPoolThreads) {
@@ -374,6 +379,48 @@ namespace worker_pool {
         template<typename TCallback, typename... TArgs>
             requires invocable_returns_void<TCallback, TArgs...>
         auto add(const std::string& name, const TCallback& callback, TArgs... args) -> task<void>;
+
+        /**
+         * Blocks until at least one thread is idle,
+         * or until the pool begins to shut down.
+         * @return The number of idle threads in this pool.
+         */
+        unsigned int await_idle_thread();
+
+        /**
+         * Blocks until at least one thread is idle,
+         * or until the pool begins to shut down,
+         * or until the given timeout elapses.
+         * @param timeout_duration Time to wait before returning 0 if no threads are idle.
+         * @return The number of idle threads in this pool.
+         */
+        template<class Rep, class Period>
+        unsigned int await_idle_thread_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
+            return await_idle_thread_until(std::chrono::steady_clock::now() + timeout_duration);
+        }
+
+        /**
+         * Blocks until at least one thread is idle,
+         * or until the pool begins to shut down,
+         * or until the given timeout is reached.
+         * @param timeout_time Time to await before returning 0 if no threads are idle.
+         * @return The number of idle threads in this pool.
+         */
+        template<class Clock, class Duration>
+        unsigned int await_idle_thread_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
+            std::unique_lock threadsLock(threadsMutex);
+            unsigned int idleThreadCount = 0;
+            threadsCv.wait_until(threadsLock, timeout_time, [&] {
+                const auto it = idleThreads.load(std::memory_order::acquire);
+                log("idleThreads observed as %d\n", it);
+                if (it > 0 || stopping.load(std::memory_order::acquire)) {
+                    idleThreadCount = it;
+                    return true;
+                }
+                return false;
+            });
+            return idleThreadCount;
+        }
 
     private:
         template<class Rep, class Period>
