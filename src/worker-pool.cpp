@@ -393,6 +393,12 @@ deadlockCheckLock.unlock(); \
                 return doneWaiting;
             });
 
+            if (stopping.load(std::memory_order::acquire) && unstarted.empty()) {
+                --workingThreads;
+                threadsCv.notify_all();
+                return;
+            }
+            
             // Take the first item that we can successfully mark as executing.
             auto item = std::find_if(unstarted.begin(), unstarted.end(),
                                      [](const std::shared_ptr<WorkItem>& wi) {

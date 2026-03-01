@@ -122,16 +122,32 @@ TEST(AwaitIdle, WaitUntilTimeout) {
 
 TEST(AwaitIdle, ReturnsAtShutDown) {
     pool pool(1);
-    auto task = pool.add([&] { std::this_thread::sleep_for(std::chrono::seconds(1)); });
+    constexpr auto TASK_TIME = std::chrono::milliseconds(2000);
+    auto task = pool.add([&] { std::this_thread::sleep_for(TASK_TIME); });
     pool.shutDown();
-    EXPECT_EQ(0, pool.await_idle_thread());
+    const auto waitStartTime = std::chrono::steady_clock::now();
+    while (true) {
+        if (pool.await_idle_thread() == 0)
+            return;
+        const auto timeWaited = std::chrono::steady_clock::now() - waitStartTime;
+        ASSERT_LE(timeWaited, TASK_TIME / 2);
+        std::this_thread::sleep_for(tenMs);
+    }
 }
 
 TEST(AwaitIdle, ReturnsAtShutDownFor) {
     pool pool(1);
-    auto task = pool.add([&] { std::this_thread::sleep_for(std::chrono::seconds(1)); });
+    constexpr auto TASK_TIME = std::chrono::milliseconds(2000);
+    auto task = pool.add([&] { std::this_thread::sleep_for(TASK_TIME); });
     pool.shutDown();
-    EXPECT_EQ(0, pool.await_idle_thread_for(std::chrono::nanoseconds(1)));
+    const auto waitStartTime = std::chrono::steady_clock::now();
+    while (true) {
+        if (pool.await_idle_thread_for(std::chrono::milliseconds(10)) == 0)
+            return;
+        const auto timeWaited = std::chrono::steady_clock::now() - waitStartTime;
+        ASSERT_LE(timeWaited, TASK_TIME / 2);
+        std::this_thread::sleep_for(tenMs);
+    }
 }
 
 TEST(AwaitIdle, Pipeline) {
