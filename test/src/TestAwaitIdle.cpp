@@ -40,7 +40,6 @@ TEST(AwaitIdle, WaitUntil1) {
     }
 }
 
-
 TEST(AwaitIdle, WaitUntil4) {
     pool pool(4);
     while (true) {
@@ -95,7 +94,6 @@ TEST(AwaitIdle, WaitForTimeout) {
     }
     EXPECT_EQ(0, pool.await_idle_thread_for(std::chrono::milliseconds(500)));
 }
-
 
 TEST(AwaitIdle, WaitUntilTimeout) {
     std::atomic<bool> started = false;

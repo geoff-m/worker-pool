@@ -412,7 +412,6 @@ namespace worker_pool {
             unsigned int idleThreadCount = 0;
             threadsCv.wait_until(threadsLock, timeout_time, [&] {
                 const auto it = idleThreads.load(std::memory_order::acquire);
-                log("idleThreads observed as %d\n", it);
                 if (it > 0 || stopping.load(std::memory_order::acquire)) {
                     idleThreadCount = it;
                     return true;
