@@ -117,7 +117,6 @@ namespace worker_pool {
         unsigned int idleThreadCount = 0;
         threadsCv.wait(threadsLock, [&] {
             const auto it = idleThreads.load(std::memory_order::acquire);
-            log("idleThreads observed as %d", it);
             if (it > 0 || stopping.load(std::memory_order::acquire)) {
                 idleThreadCount = it;
                 return true;
@@ -391,16 +390,14 @@ deadlockCheckLock.unlock(); \
                 if (doneWaiting) {
                     if (idle) {
                         std::lock_guard threadsLock(threadsMutex);
-                        const auto v = --idleThreads;
-                        log("decremented idleThreads to %d", v);
+                        --idleThreads;
                     }
                 } else {
                     if (!idle) {
                         idle = true; // Prevent entering this block more than once during the same wait.
                         {
                             std::lock_guard threadsLock(threadsMutex);
-                            const auto v = ++idleThreads;
-                            log("incremented idleThreads to %d", v);
+                            ++idleThreads;
                         }
                         threadsCv.notify_all();
                     }

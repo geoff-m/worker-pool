@@ -175,7 +175,7 @@ pool p;
 p.add([]{});
 p.shutDown();
 
-// This will throw an exception because the pool has been shut down
+// This will throw an exception because the pool has been shut down.
 p.add([]{}); 
 ```
 
@@ -214,9 +214,40 @@ if (t.try_cancel()) {
     // Failed to cancel task.
     // It has already been started, finished, or canceled.
     
-    t.get(); // Returns 123. might not return immediately.
+    t.get(); // Returns 123. Might not return immediately.
 }
 ```
+
+### Waiting for pool capacity
+
+For convenience, we provide a method `await_idle_thread` along with timed versions.
+The is can be used as a simple backpressure mechanism,
+which may be useful if you need to create a large number of pool tasks,
+or if your tasks are expensive to initialize.
+For example, in the following code, a large number of tasks are created. 
+```c++
+pool pool;
+std::vector<task<void>> tasks;
+for (int i = 0; i < 10000000; ++i) {
+    tasks.emplace_back(pool.add(/* ... */));
+}
+pool::wait_all(tasks);
+```
+If you are concerned about the cost of rapidly creating and storing
+all these closures and vector elements, a simple alternative
+is to defer creation of pool tasks until the pool is ready for them.
+The above code could be rewritten thus:
+```c++
+{
+    pool pool;
+    for (int i = 0; i < 10000000; ++i) {
+        pool.await_idle_thread();
+        pool.add(/* ... */);
+    }
+} // All pending tasks will be awaited upon destruction of pool.
+```
+In the version using `await_idle_thread`,
+the pool's parallelism limits the number of tasks that exist simultaneously.
 
 ### Custom thread factory
 

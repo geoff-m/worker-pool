@@ -151,16 +151,22 @@ TEST(AwaitIdle, ReturnsAtShutDownFor) {
 }
 
 TEST(AwaitIdle, Pipeline) {
-    constexpr auto THREAD_COUNT = 2;
-    std::atomic<int> activeTasks = 0;
-    pool pool(THREAD_COUNT);
-    for (int i = 0; i < 100; i++) {
-        const auto idleThreads = pool.await_idle_thread();
-        EXPECT_TRUE(idleThreads >= 1 && idleThreads <= THREAD_COUNT);
-        pool.add([&] {
-            EXPECT_LE(++activeTasks, THREAD_COUNT);
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            --activeTasks;
-        });
+    constexpr auto TASK_COUNT = 1000;
+    std::atomic<int> doneTasks = 0;
+    {
+        constexpr auto THREAD_COUNT = 2;
+        std::atomic<int> activeTasks = 0;
+        pool pool(THREAD_COUNT);
+        for (int i = 0; i < TASK_COUNT; i++) {
+            const auto idleThreads = pool.await_idle_thread();
+            EXPECT_TRUE(idleThreads >= 1 && idleThreads <= THREAD_COUNT);
+            pool.add([&] {
+                EXPECT_LE(++activeTasks, THREAD_COUNT);
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                --activeTasks;
+                ++doneTasks;
+            });
+        }
     }
+    EXPECT_EQ(TASK_COUNT, doneTasks.load(std::memory_order::acquire));
 }
