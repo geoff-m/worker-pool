@@ -16,13 +16,10 @@
 namespace worker_pool {
 #ifdef WORKER_POOL_LOGGING
     [[nodiscard]] unsigned long long getThreadId() {
-
-
-
 #ifdef _WIN32
-    return GetCurrentThreadId();
+        return GetCurrentThreadId();
 #else
-    return pthread_self();
+        return pthread_self();
 #endif
     }
 #endif
@@ -126,6 +123,13 @@ namespace worker_pool {
             return false;
         });
         return idleThreadCount;
+    }
+
+    void pool::await_idle_pool() {
+        std::unique_lock threadsLock(threadsMutex);
+        threadsCv.wait(threadsLock, [&] {
+            return readyThreads.load(std::memory_order::acquire) == 0 && unstarted.empty();
+        });
     }
 
     void pool::throwIfStopped() const {
@@ -236,21 +240,21 @@ namespace worker_pool {
                 waitingForNext ? waitingForNext->name.c_str() : "nothing");
             if (waitingFor == executingWorkItem) {
 #ifdef WORKER_POOL_DEADLOCK_DETECTION_TERMINATE
-                std::terminate();
+    std::terminate();
 #else
-                std::string msg = "The requested wait would deadlock: ";
-                msg += executingWorkItem->getName();
-                if (waitingFor == &toAwait) {
+    std::string msg = "The requested wait would deadlock: ";
+    msg+= executingWorkItem->getName();
+                if (waitingFor== &toAwait) {
                     msg += " would wait for itself";
                 } else {
                     msg += " would wait for itself via ";
                     msg += formatWaitChain(toAwait);
                 }
-                log("Throwing exception: %s", msg.c_str());
-                throw deadlock_exception(msg);
+    log ("Throwing exception: %s", msg.c_str());
+                throw deadlock_exception (msg);
 #endif
-            }
-            waitingFor = waitingForNext;
+    }
+    waitingFor= waitingForNext;
         }
     }
 #endif
