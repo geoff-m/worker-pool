@@ -81,8 +81,6 @@ namespace worker_pool {
     class pool {
         class WorkItem;
         friend class WorkItem;
-        std::condition_variable unstartedCv;
-        std::mutex unstartedMutex;
         std::list<std::shared_ptr<WorkItem>> unstarted;
 
         template<typename T>
@@ -160,11 +158,9 @@ namespace worker_pool {
 
         size_t lastItemId = 0;
 
-        // Number of threads that are not blocked in a wait.
-        std::atomic<int> workingThreads = 0;
-
-        // Number of threads that are waiting for more work to be enqueued.
-        std::atomic<int> idleThreads = 0;
+        // Number of threads that are either actively executing a task or are about to be.
+        // If a thread is not ready, it is either waiting for more work to be enqueued, or stuck waiting for a separate thread.
+        std::atomic<int> readyThreads = 0;
 
         void work();
 
@@ -411,7 +407,7 @@ namespace worker_pool {
             std::unique_lock threadsLock(threadsMutex);
             unsigned int idleThreadCount = 0;
             threadsCv.wait_until(threadsLock, timeout_time, [&] {
-                const auto it = idleThreads.load(std::memory_order::acquire);
+                const auto it = static_cast<int>(targetParallelism) - readyThreads.load(std::memory_order::acquire);
                 if (it > 0 || stopping.load(std::memory_order::acquire)) {
                     idleThreadCount = it;
                     return true;
@@ -439,12 +435,12 @@ namespace worker_pool {
 
             // Block this thread.
             if (executingWorkItem && threadOwningPool == this) {
-                --workingThreads;
+                --readyThreads;
                 threadsCv.notify_one();
             }
             const auto status = workItem->future.wait_until(timeout_time);
             if (executingWorkItem && threadOwningPool == this) {
-                ++workingThreads;
+                ++readyThreads;
             }
 
             log("Done with timed wait for %s (task is %s)",
@@ -652,7 +648,7 @@ namespace worker_pool {
          */
         bool try_cancel() {
             auto& pool = wi->getOwningPool();
-            std::lock_guard lock(pool.unstartedMutex);
+            std::lock_guard lock(pool.threadsMutex);
             if (!wi->trySetCanceled())
                 return false;
             pool.unstarted.erase(wi->getIterator());
@@ -742,7 +738,7 @@ namespace worker_pool {
          */
         void get() {
             wait();
-            (void) wi->getResult();
+            (void)wi->getResult();
         }
     };
 
@@ -756,7 +752,7 @@ namespace worker_pool {
                    TArgs... args) -> task<decltype(std::invoke(callback, args...))> {
         using TResult = decltype(std::invoke(callback, args...));
         static_assert(std::is_copy_constructible_v<TResult>, "Task result must be copy constructible");
-        std::lock_guard lock(unstartedMutex);
+        std::lock_guard lock(threadsMutex);
         throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this,
                                              lastItemId++, name);
@@ -775,7 +771,7 @@ namespace worker_pool {
         }));
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
-        unstartedCv.notify_one();
+        threadsCv.notify_one();
         return task<TResult>(wi);
     }
 
@@ -788,7 +784,7 @@ namespace worker_pool {
     template<typename TCallback, typename... TArgs>
         requires invocable_returns_void<TCallback, TArgs...>
     auto pool::add(const std::string& name, const TCallback& callback, TArgs... args) -> task<void> {
-        std::lock_guard lock(unstartedMutex);
+        std::lock_guard lock(threadsMutex);
         throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this, lastItemId++, name);
         auto* pwi = wi.get(); // Avoid reference cycle
@@ -806,7 +802,7 @@ namespace worker_pool {
         }));
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
-        unstartedCv.notify_one();
+        threadsCv.notify_one();
         return task<void>(wi);
     }
 
@@ -839,7 +835,7 @@ namespace worker_pool {
                             // This item was unstarted and now we can execute it synchronously.
                             auto itemValue = item;
                             {
-                                std::lock_guard lock(taskPool.unstartedMutex);
+                                std::lock_guard lock(taskPool.threadsMutex);
                                 taskPool.unstarted.erase(item->thisIterator);
                             }
                             itemValue->execute();
