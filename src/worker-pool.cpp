@@ -128,7 +128,7 @@ namespace worker_pool {
     void pool::await_idle_pool() {
         std::unique_lock threadsLock(threadsMutex);
         threadsCv.wait(threadsLock, [&] {
-            return readyThreads.load(std::memory_order::acquire) == 0;
+            return readyThreads.load(std::memory_order::acquire) == 0 && unstarted.empty();
         });
     }
 

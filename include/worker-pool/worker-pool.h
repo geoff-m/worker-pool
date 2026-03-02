@@ -432,7 +432,7 @@ namespace worker_pool {
         bool await_idle_pool_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
             std::unique_lock threadsLock(threadsMutex);
             return threadsCv.wait_until(threadsLock, timeout_time, [&] {
-                return readyThreads.load(std::memory_order::acquire) == 0;
+                return readyThreads.load(std::memory_order::acquire) == 0 && unstarted.empty();
             });
         }
 

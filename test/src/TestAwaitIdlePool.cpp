@@ -131,3 +131,23 @@ TEST(AwaitIdlePool, ReturnsAtShutDownFor) {
     pool.shutDown();
     pool.await_idle_pool_for(TASK_TIME+ std::chrono::seconds(1));
 }
+
+TEST(AwaitIdlePool, Pipeline) {
+    constexpr auto TASK_COUNT = 1000;
+    std::atomic<int> doneTasks = 0;
+    {
+        constexpr auto THREAD_COUNT = 2;
+        std::atomic<int> pendingTasks = 0;
+        pool pool(THREAD_COUNT);
+        for (int i = 0; i < TASK_COUNT; i++) {
+            pool.await_idle_pool();
+            EXPECT_LE(++pendingTasks, 1);
+            pool.add([&] {
+                sleepMs(1);
+                --pendingTasks;
+                ++doneTasks;
+            });
+        }
+    }
+    EXPECT_EQ(TASK_COUNT, doneTasks.load(std::memory_order::acquire));
+}
