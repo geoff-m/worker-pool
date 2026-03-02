@@ -417,6 +417,25 @@ namespace worker_pool {
             return idleThreadCount;
         }
 
+        /**
+         * Blocks until the pool has no current or pending work,
+         * or until the pool begins to shut down.
+         */
+        void await_idle_pool();
+
+        template<class Rep, class Period>
+        bool await_idle_pool_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
+            return await_idle_pool_until(std::chrono::steady_clock::now() + timeout_duration);
+        }
+
+        template<class Clock, class Duration>
+        bool await_idle_pool_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
+            std::unique_lock threadsLock(threadsMutex);
+            return threadsCv.wait_until(threadsLock, timeout_time, [&] {
+                return readyThreads.load(std::memory_order::acquire) == 0;
+            });
+        }
+
     private:
         template<class Rep, class Period>
         bool wait_for(std::shared_ptr<WorkItem> workItem, const std::chrono::duration<Rep, Period>& timeout_duration) {

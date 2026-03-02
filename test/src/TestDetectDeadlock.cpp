@@ -1,3 +1,4 @@
+#ifdef WORKER_POOL_DEADLOCK_DETECTION
 #include "TestUtils.h"
 #include "worker-pool/worker-pool.h"
 #include <stdexcept>
@@ -261,3 +262,4 @@ TEST(Deadlock, Cycle1280) {
     auto first = cycle.getFirst();
     EXPECT_THROW(first->get(), deadlock_exception);
 }
+#endif

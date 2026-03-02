@@ -6,31 +6,31 @@ using namespace worker_pool;
 
 const auto tenMs = std::chrono::milliseconds(10);
 
-TEST(AwaitIdle, Create1) {
+TEST(AwaitIdleThread, Create1) {
     pool pool(1);
     while (pool.await_idle_thread() < 1)
         std::this_thread::sleep_for(tenMs);
 }
 
-TEST(AwaitIdle, Create4) {
+TEST(AwaitIdleThread, Create4) {
     pool pool(4);
     while (pool.await_idle_thread() < 4)
         std::this_thread::sleep_for(tenMs);
 }
 
-TEST(AwaitIdle, WaitFor1) {
+TEST(AwaitIdleThread, WaitFor1) {
     pool pool(1);
     while (pool.await_idle_thread_for(tenMs) < 1)
         std::this_thread::sleep_for(tenMs);
 }
 
-TEST(AwaitIdle, WaitFor4) {
+TEST(AwaitIdleThread, WaitFor4) {
     pool pool(4);
     while (pool.await_idle_thread_for(tenMs) < 4)
         std::this_thread::sleep_for(tenMs);
 }
 
-TEST(AwaitIdle, WaitUntil1) {
+TEST(AwaitIdleThread, WaitUntil1) {
     pool pool(1);
     while (true) {
         const auto deadline = std::chrono::steady_clock::now() + tenMs;
@@ -40,7 +40,7 @@ TEST(AwaitIdle, WaitUntil1) {
     }
 }
 
-TEST(AwaitIdle, WaitUntil4) {
+TEST(AwaitIdleThread, WaitUntil4) {
     pool pool(4);
     while (true) {
         const auto deadline = std::chrono::steady_clock::now() + tenMs;
@@ -50,7 +50,7 @@ TEST(AwaitIdle, WaitUntil4) {
     }
 }
 
-TEST(AwaitIdle, Wait) {
+TEST(AwaitIdleThread, Wait) {
     std::atomic<bool> started = false;
     std::mutex mutex;
     std::condition_variable cv;
@@ -73,7 +73,7 @@ TEST(AwaitIdle, Wait) {
     EXPECT_TRUE(task.is_done());
 }
 
-TEST(AwaitIdle, WaitForTimeout) {
+TEST(AwaitIdleThread, WaitForTimeout) {
     std::atomic<bool> started = false;
     std::mutex mutex;
     std::condition_variable cv;
@@ -95,7 +95,7 @@ TEST(AwaitIdle, WaitForTimeout) {
     EXPECT_EQ(0, pool.await_idle_thread_for(std::chrono::milliseconds(500)));
 }
 
-TEST(AwaitIdle, WaitUntilTimeout) {
+TEST(AwaitIdleThread, WaitUntilTimeout) {
     std::atomic<bool> started = false;
     std::mutex mutex;
     std::condition_variable cv;
@@ -118,7 +118,7 @@ TEST(AwaitIdle, WaitUntilTimeout) {
     EXPECT_EQ(0, pool.await_idle_thread_until(deadline));
 }
 
-TEST(AwaitIdle, ReturnsAtShutDown) {
+TEST(AwaitIdleThread, ReturnsAtShutDown) {
     constexpr auto TASK_TIME = std::chrono::milliseconds(2000);
     pool pool(1);
     auto task = pool.add([&] { std::this_thread::sleep_for(TASK_TIME); });
@@ -133,7 +133,7 @@ TEST(AwaitIdle, ReturnsAtShutDown) {
     }
 }
 
-TEST(AwaitIdle, ReturnsAtShutDownFor) {
+TEST(AwaitIdleThread, ReturnsAtShutDownFor) {
     constexpr auto TASK_TIME = std::chrono::milliseconds(2000);
     pool pool(1);
     auto task = pool.add([&] { std::this_thread::sleep_for(TASK_TIME); });
@@ -148,7 +148,7 @@ TEST(AwaitIdle, ReturnsAtShutDownFor) {
     }
 }
 
-TEST(AwaitIdle, Pipeline) {
+TEST(AwaitIdleThread, Pipeline) {
     constexpr auto TASK_COUNT = 1000;
     std::atomic<int> doneTasks = 0;
     {

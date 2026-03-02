@@ -92,7 +92,7 @@ pool::wait_all(tasks.data(), tasks.size());
 
 Compared with sequentially calling `task::wait` on each of a set of tasks,
 `pool::wait_all` is more convenient, and in some scenarios, also more performant.
-Further discussion of the waiting features can be found
+Further discussion of the task waiting features can be found
 [on my blog](https://geoff.space/2025/12/intelligent-waiting-in-a-thread-pool/).
 
 ### Timed waiting
@@ -218,37 +218,6 @@ if (t.try_cancel()) {
 }
 ```
 
-### Waiting for pool capacity
-
-For convenience, we provide a method `await_idle_thread` along with timed versions.
-The is can be used as a simple backpressure mechanism,
-which may be useful if you need to create a large number of pool tasks,
-or if your tasks are expensive to initialize.
-For example, in the following code, a large number of tasks are created. 
-```c++
-pool pool;
-std::vector<task<void>> tasks;
-for (int i = 0; i < 10000000; ++i) {
-    tasks.emplace_back(pool.add(/* ... */));
-}
-pool::wait_all(tasks);
-```
-If you are concerned about the cost of rapidly creating and storing
-all these closures and vector elements, a simple alternative
-is to defer creation of pool tasks until the pool is ready for them.
-The above code could be rewritten thus:
-```c++
-{
-    pool pool;
-    for (int i = 0; i < 10000000; ++i) {
-        pool.await_idle_thread();
-        pool.add(/* ... */);
-    }
-} // All pending tasks will be awaited upon destruction of pool.
-```
-In the version using `await_idle_thread`,
-the pool's parallelism limits the number of tasks that exist simultaneously.
-
 ### Custom thread factory
 
 You can provide your own threads for use by the pool.
@@ -366,6 +335,44 @@ and does not attempt to find or prevent other kinds of deadlocks that may exist 
 
 Further discussion of what this feature is and how it works can be found
 [on my blog](https://geoff.space/2025/12/detecting-deadlocks-in-a-thread-pool/).
+
+### Waiting for pool capacity
+
+For convenience, we provide a method `await_idle_thread` along with timed versions.
+This can be used as a simple backpressure mechanism,
+which may be useful if you need to create a large number of pool tasks,
+or if your tasks are expensive to initialize.
+For example, in the following code, a large number of tasks are created.
+```c++
+pool pool;
+std::vector<task<void>> tasks;
+for (int i = 0; i < 10000000; ++i) {
+    tasks.emplace_back(pool.add(/* ... */));
+}
+pool::wait_all(tasks);
+```
+If you are concerned about the cost of rapidly creating and storing
+all these closures and vector elements, a simple alternative
+is to defer creation of pool tasks until the pool is ready for them.
+The above code could be rewritten thus:
+```c++
+{
+    pool pool;
+    for (int i = 0; i < 10000000; ++i) {
+        pool.await_idle_thread();
+        pool.add(/* ... */);
+    }
+} // All pending tasks will be awaited upon destruction of pool.
+```
+In the version using `await_idle_thread`,
+the pool's parallelism limits the number of tasks that exist simultaneously.
+
+Similarly, you can detect the entire pool's being idle using `await_idle_pool`.
+However, since these functions present only an ephemeral view of the pool's state,
+applications that rely on them must carefully avoid TOCTOU bugs.
+It is preferred as less error-prone to wait for specific tasks by calling a `wait*` function,
+and the preferred way to wait for an entire pool to be finished is to destroy the pool.
+
 ### More examples
 
 The unit tests in `test/src/` are good sources of further examples.
