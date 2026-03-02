@@ -30,6 +30,7 @@ add_executable(test-worker-pool
         src/TestMultipool.cpp
         src/TestDetectDeadlock.cpp
         src/TestGetState.cpp
+        src/TestAwaitIdle.cpp
 )
 
 target_include_directories(test-worker-pool PRIVATE src/include)
