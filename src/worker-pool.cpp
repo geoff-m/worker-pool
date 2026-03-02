@@ -16,10 +16,13 @@
 namespace worker_pool {
 #ifdef WORKER_POOL_LOGGING
     [[nodiscard]] unsigned long long getThreadId() {
+
+
+
 #ifdef _WIN32
-        return GetCurrentThreadId();
+    return GetCurrentThreadId();
 #else
-        return pthread_self();
+    return pthread_self();
 #endif
     }
 #endif
@@ -96,7 +99,7 @@ namespace worker_pool {
         if (!stopping.compare_exchange_strong(expected, true))
             return;
         {
-            std::scoped_lock lock(threadsMutex, unstartedMutex);
+            std::lock_guard lock(threadsMutex);
             stopping.store(true, std::memory_order::release);
             if (cancelUnstarted) {
                 for (const auto& wi : unstarted)
@@ -105,7 +108,6 @@ namespace worker_pool {
             }
         }
         threadsCv.notify_all();
-        unstartedCv.notify_all();
     }
 
     std::string pool::get_name() const {
@@ -116,7 +118,7 @@ namespace worker_pool {
         std::unique_lock threadsLock(threadsMutex);
         unsigned int idleThreadCount = 0;
         threadsCv.wait(threadsLock, [&] {
-            const auto it = idleThreads.load(std::memory_order::acquire);
+            const auto it = static_cast<int>(targetParallelism) - readyThreads.load(std::memory_order::acquire);
             if (it > 0 || stopping.load(std::memory_order::acquire)) {
                 idleThreadCount = it;
                 return true;
@@ -295,12 +297,12 @@ deadlockCheckLock.unlock(); \
                     if (!allowWorkOffPoolThreads && threadOwningPool != this) {
                         PUSH_WAITING_FOR;
                         if (executingWorkItem && threadOwningPool == this) {
-                            --workingThreads;
+                            --readyThreads;
                             threadsCv.notify_one();
                         }
                         workItem->future.wait();
                         if (executingWorkItem && threadOwningPool == this) {
-                            ++workingThreads;
+                            ++readyThreads;
                         }
                         POP_WAITING_FOR;
                         assert(workItem->getState() != TaskState::Executing);
@@ -309,7 +311,7 @@ deadlockCheckLock.unlock(); \
                     // Execute it synchronously.
                     bool doExecute = false;
                     {
-                        std::lock_guard lock(unstartedMutex);
+                        std::lock_guard lock(threadsMutex);
                         if (workItem->trySetExecuting()) {
                             unstarted.erase(workItem->thisIterator);
                             doExecute = true;
@@ -329,13 +331,13 @@ deadlockCheckLock.unlock(); \
                     FAIL_IF_WAITING_WILL_DEADLOCK(*workItem);
                     PUSH_WAITING_FOR;
                     if (executingWorkItem && threadOwningPool == this) {
-                        --workingThreads;
+                        --readyThreads;
                         threadsCv.notify_one();
                     }
                     // Block this thread.
                     workItem->future.wait();
                     if (executingWorkItem && threadOwningPool == this) {
-                        ++workingThreads;
+                        ++readyThreads;
                     }
                     POP_WAITING_FOR;
                     assert(workItem->getState() != TaskState::Executing);
@@ -349,63 +351,26 @@ deadlockCheckLock.unlock(); \
         threadOwningPool = this;
         while (true) {
             // Wait if this thread isn't needed for target parallelism.
-            {
-                bool shouldExit = false;
-                {
-                    std::unique_lock threadsLock(threadsMutex);
-                    threadsCv.wait(threadsLock, [&] {
-                        const bool poolIsStopping = stopping.load(std::memory_order::acquire);
-                        const bool threadIsExtra = workingThreads.load(std::memory_order::acquire) >= targetParallelism;
-                        if (poolIsStopping) [[unlikely]] {
-                            if (threadIsExtra) {
-                                shouldExit = true;
-                                return true; // we should exit immediately.
-                            } else {
-                                ++workingThreads;
-                                return true; // done waiting for threads state; begin waiting for work
-                            }
-                        } else {
-                            if (threadIsExtra) {
-                                return false; // keep waiting
-                            } else {
-                                ++workingThreads;
-                                return true; // done waiting for threads state; begin waiting for work
-                            }
-                        }
-                    });
-                }
-                if (shouldExit) {
-                    threadsCv.notify_all();
-                    return;
-                }
-            }
 
-
-            // Wait for work to be available.
-            std::unique_lock unstartedLock(unstartedMutex);
-            bool idle = false;
-            unstartedCv.wait(unstartedLock, [&] {
-                const auto doneWaiting = !unstarted.empty()
-                                         || stopping.load(std::memory_order::acquire);
-                if (doneWaiting) {
-                    if (idle) {
-                        std::lock_guard threadsLock(threadsMutex);
-                        --idleThreads;
-                    }
-                } else {
-                    if (!idle) {
-                        idle = true; // Prevent entering this block more than once during the same wait.
-                        {
-                            std::lock_guard threadsLock(threadsMutex);
-                            ++idleThreads;
-                        }
-                        threadsCv.notify_all();
-                    }
+            bool shouldExit = false;
+            std::unique_lock threadsLock(threadsMutex);
+            threadsCv.wait(threadsLock, [&] {
+                const bool poolIsStopping = stopping.load(std::memory_order::acquire);
+                const int readyThreadCount = readyThreads.load(std::memory_order::acquire);
+                const bool unstartedTasks = !unstarted.empty();
+                if (poolIsStopping && !unstartedTasks && readyThreadCount == 0) {
+                    shouldExit = true;
+                    return true;
                 }
-                return doneWaiting;
+                if (unstartedTasks && readyThreadCount < targetParallelism) {
+                    // This thread should do work.
+                    ++readyThreads;
+                    return true;
+                }
+                // This thread should continue to wait.
+                return false;
             });
-
-            if (stopping.load(std::memory_order::acquire) && unstarted.empty()) {
+            if (shouldExit) {
                 threadsCv.notify_all();
                 return;
             }
@@ -418,7 +383,8 @@ deadlockCheckLock.unlock(); \
             if (item == unstarted.end()) {
                 // Failed to mark any item as executing.
                 std::this_thread::yield();
-                --workingThreads;
+                --readyThreads;
+                threadsCv.notify_all();
                 continue;
             }
             // Copy the value because we're about to use it
@@ -426,9 +392,10 @@ deadlockCheckLock.unlock(); \
             // plus to increment the reference count.
             auto itemValue = *item; // NOLINT(*-unnecessary-copy-initialization)
             unstarted.erase(item);
-            unstartedLock.unlock();
+            threadsLock.unlock();
             itemValue->execute();
-            --workingThreads;
+            --readyThreads;
+            threadsCv.notify_all();
         }
     }
 }
