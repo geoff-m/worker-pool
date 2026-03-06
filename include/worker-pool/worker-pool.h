@@ -9,6 +9,7 @@
 #include <concepts>
 #include <memory>
 #include <atomic>
+#include <vector>
 #include <list>
 #include <optional>
 #include <utility>
@@ -113,7 +114,7 @@ namespace worker_pool {
         std::atomic<size_t> addedTaskCount = 0;
         std::mutex threadsMutex;
         std::condition_variable threadsCv;
-        std::list<std::thread> threads;
+        std::vector<std::thread> threads;
         const unsigned int targetParallelism;
         const unsigned int maxWaiterThreads;
         const bool allowWorkOffPoolThreads;
@@ -230,6 +231,7 @@ namespace worker_pool {
                 throw std::invalid_argument("Target parallelism must be at least 1");
             std::lock_guard lock(threadsMutex);
             const auto totalThreads = targetParallelism + extraThreads;
+            threads.reserve(totalThreads);
             for (unsigned int i = 0; i < totalThreads; i++) {
                 threads.emplace_back(threadFactory([this] { work(); }));
             }
