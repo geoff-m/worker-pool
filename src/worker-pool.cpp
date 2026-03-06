@@ -84,6 +84,9 @@ namespace worker_pool {
         return get_name() + "_task" + std::to_string(addedTaskCount++);
     }
 
+    std::function<std::thread(const std::function<void()>&)> pool::defaultThreadFactory
+            = [](const std::function<void()>& callback) { return std::thread(callback); };
+
     pool::~pool() {
         shutDown(false);
         for (auto& thread : threads) {
@@ -240,21 +243,21 @@ namespace worker_pool {
                 waitingForNext ? waitingForNext->name.c_str() : "nothing");
             if (waitingFor == executingWorkItem) {
 #ifdef WORKER_POOL_DEADLOCK_DETECTION_TERMINATE
-    std::terminate();
+                std::terminate();
 #else
-    std::string msg = "The requested wait would deadlock: ";
-    msg+= executingWorkItem->getName();
-                if (waitingFor== &toAwait) {
+                std::string msg = "The requested wait would deadlock: ";
+                msg += executingWorkItem->getName();
+                if (waitingFor == &toAwait) {
                     msg += " would wait for itself";
                 } else {
                     msg += " would wait for itself via ";
                     msg += formatWaitChain(toAwait);
                 }
-    log ("Throwing exception: %s", msg.c_str());
-                throw deadlock_exception (msg);
+                log("Throwing exception: %s", msg.c_str());
+                throw deadlock_exception(msg);
 #endif
-    }
-    waitingFor= waitingForNext;
+            }
+            waitingFor = waitingForNext;
         }
     }
 #endif
