@@ -265,7 +265,7 @@ For convenience, we offer a few alternatives for situations like the above.
 pool_builder builder;
 builder.set_target_parallelism(8);
 builder.set_queue_size(16);
-//builder.setFullQueuePolicy(FullQueuePolicy::Block); // Implicit default
+//builder.set_full_queue_policy(FullQueuePolicy::Block); // Implicit default
 auto pool = builder.build();
 for (int i = 0; i < 10000000; ++i) {
     pool.add(/* ... */);
@@ -275,7 +275,8 @@ The above example bounds the pool's task queue size to 16.
 Because the policy is the default of `Block`,
 calls to `pool.add` wait until there is space for the new task in the queue.
 
-In addition to the default of `Block`, `FullQueuePolicy` has two other options:
+There are three options for `FullQueuePolicy`:
+- `Block` (default): When attempting to add a new task to a full queue, block until space is available.
  - `DropOld`: When attempting to add a new task to a full queue,
 cancel the oldest task and enqueue the new one.
  - `DropNew`: When attempting to add a new task to a full queue,
@@ -283,8 +284,21 @@ cancel the new task and don't enqueue it.
 
 #### Nonblocking task creation with a bounded queue
 If you want to add a task only if the queue is not full, call `try_add`.
-`try_add` returns false immediately if the queue is full,
-regardless of the configured full queue policy.
+If the queue is full when you call `try_add`, the full queue policy does not apply.
+Instead, the method immediately returns false and does not create a task.
+```c++
+task<int> maybeTask;
+if (pool.try_add([] { return 123; })) {
+    // Successfully added task to pool (queue was not full).
+    
+    /* ... */ = maybeTask.get(); // returns 123
+} else {
+    // Did not successfully add task to pool (queue was full).
+    
+    // Do not do this:
+    /* ... */ =  maybeTask.get(); // undefined behavior
+}
+```
 
 #### Waiting for task completion without a task object
 There are ways to avoid having to store a large number of tasks in order to wait for them.
