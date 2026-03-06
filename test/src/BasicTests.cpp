@@ -6,7 +6,10 @@
 using namespace worker_pool;
 
 TEST(BasicTests, Create0) {
-    EXPECT_ANY_THROW(pool pool(0););
+    pool pool(0);
+    // This should auto-detect a reasonable value for targetParallelism.
+    // Verify we can at least do one task.
+    pool.add([] {});
 }
 
 TEST(BasicTests, Create1) {

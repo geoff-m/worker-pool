@@ -9,7 +9,9 @@
 #include <concepts>
 #include <memory>
 #include <atomic>
+#include <vector>
 #include <list>
+#include <optional>
 #include <utility>
 
 #ifdef WORKER_POOL_LOGGING
@@ -73,6 +75,20 @@ namespace worker_pool {
         Canceled
     };
 
+    enum class FullQueuePolicy {
+        // Specifies that when the pool's task queue is full,
+        // attempting to add a new task should block until space becomes available for the new task.
+        Block,
+
+        // Specifies that when the pool's task queue is full,
+        // attempting to add a new task should cancel a task at or near the beginning of the queue.
+        DropOld,
+
+        // Specifies that when the pool's task queue is full,
+        // attempting to add a new task should immediately cancel the new task instead of adding it to the queue.
+        DropNew
+    };
+
     /**
      * A thread pool to which tasks can be added as callbacks.
      * The pool eventually executes all tasks ever added to it.
@@ -82,16 +98,19 @@ namespace worker_pool {
         class WorkItem;
         friend class WorkItem;
         std::list<std::shared_ptr<WorkItem>> unstarted;
+        const size_t maxUnstarted;
+        const FullQueuePolicy fullQueuePolicy;
 
         template<typename T>
         friend class task;
         friend class task_base;
+
         const std::string name;
         static std::atomic<unsigned int> id;
         std::atomic<size_t> addedTaskCount = 0;
         std::mutex threadsMutex;
         std::condition_variable threadsCv;
-        std::list<std::thread> threads;
+        std::vector<std::thread> threads;
         const unsigned int targetParallelism;
         const unsigned int maxWaiterThreads;
         const bool allowWorkOffPoolThreads;
@@ -111,7 +130,7 @@ namespace worker_pool {
             std::packaged_task<std::any()> task;
             std::shared_future<std::any> future;
             const std::string name;
-            using TIterator = decltype(pool::unstarted)::iterator;
+            using TIterator = decltype(unstarted)::iterator;
             TIterator thisIterator;
 
         public:
@@ -179,6 +198,96 @@ namespace worker_pool {
 #endif
 
     public:
+        static std::function<std::thread(const std::function<void()>&)> defaultThreadFactory;
+
+        /**
+         * Creates a new pool.
+         * @param name The name for this pool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
+         * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
+         * @param queueSize The size of the task queue. When the queue is full, enqueuing a new task will block.
+         * @param fullQueuePolicy The way the pool should behave when attempting to add a task in a possibly-blocking way.
+         * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
+         * to create threads.
+         * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
+         */
+        template<typename ThreadFactory>
+            requires is_thread_factory<ThreadFactory>
+        pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads, size_t queueSize,
+             FullQueuePolicy fullQueuePolicy,
+             ThreadFactory&& threadFactory,
+             bool allowWorkOffPoolThreads = true)
+            : maxUnstarted(queueSize),
+              fullQueuePolicy(fullQueuePolicy),
+              name(name.empty() ? generatePoolName() : std::move(name)),
+              targetParallelism(targetParallelism > 0 ? targetParallelism : detectParallelism()),
+              maxWaiterThreads(extraThreads),
+              allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
+            std::lock_guard lock(threadsMutex);
+            const auto totalThreads = targetParallelism + extraThreads;
+            threads.reserve(totalThreads);
+            for (unsigned int i = 0; i < totalThreads; i++) {
+                threads.emplace_back(threadFactory([this] { work(); }));
+            }
+        }
+
+        /**
+         * Creates a new pool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
+         * @param queueSize The size of the task queue. When the queue is full, enqueuing a new task will block.
+         * @param fullQueuePolicy The way the pool should behave when attempting to add a task in a possibly-blocking way.
+         * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
+         * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
+         * to create threads.
+         * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
+         */
+        template<typename ThreadFactory>
+            requires is_thread_factory<ThreadFactory>
+        pool(unsigned int targetParallelism, size_t queueSize, FullQueuePolicy fullQueuePolicy,
+             unsigned int extraThreads,
+             ThreadFactory&& threadFactory,
+             bool allowWorkOffPoolThreads = true)
+            : pool(std::string(), targetParallelism, queueSize, fullQueuePolicy, extraThreads, threadFactory,
+                   allowWorkOffPoolThreads) {
+        }
+
+        /**
+         * Creates a new pool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
+         * @param queueSize The size of the task queue. When the queue is full, enqueuing a new task will block. 0 for unbounded.
+         * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
+         * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
+         * to create threads.
+         * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
+         */
+        template<typename ThreadFactory>
+            requires is_thread_factory<ThreadFactory>
+        pool(unsigned int targetParallelism, size_t queueSize, unsigned int extraThreads,
+             ThreadFactory&& threadFactory,
+             bool allowWorkOffPoolThreads = true)
+            : pool(std::string(), targetParallelism, queueSize, FullQueuePolicy::Block, extraThreads, threadFactory,
+                   allowWorkOffPoolThreads) {
+        }
+
+        /**
+         * Creates a new pool.
+         * @param name The name for this pool.
+         * @param targetParallelism The target number of threads to use for simultaneous work.
+         * @param queueSize The size of the task queue. When the queue is full, enqueuing a new task will block. 0 for unbounded.
+         * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
+         * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
+         * to create threads.
+         * @param allowWorkOffPoolThreads Whether the pool is allowed to execute callbacks in non-pool waiter threads.
+         */
+        template<typename ThreadFactory>
+            requires is_thread_factory<ThreadFactory>
+        pool(std::string name, unsigned int targetParallelism, size_t queueSize, unsigned int extraThreads,
+             ThreadFactory&& threadFactory,
+             bool allowWorkOffPoolThreads = true)
+            : pool(std::move(name), targetParallelism, extraThreads, queueSize, FullQueuePolicy::Block, threadFactory,
+                   allowWorkOffPoolThreads) {
+        }
+
         /**
          * Creates a new pool.
          * @param name The name for this pool.
@@ -193,17 +302,12 @@ namespace worker_pool {
         pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads,
              ThreadFactory&& threadFactory,
              bool allowWorkOffPoolThreads = true)
-            : name(name.empty() ? generatePoolName() : std::move(name)),
-              targetParallelism(targetParallelism),
-              maxWaiterThreads(extraThreads),
-              allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
-            if (targetParallelism < 1)
-                throw std::invalid_argument("Target parallelism must be at least 1");
-            std::lock_guard lock(threadsMutex);
-            const auto totalThreads = targetParallelism + extraThreads;
-            for (unsigned int i = 0; i < totalThreads; i++) {
-                threads.emplace_back(threadFactory([this] { work(); }));
-            }
+            : pool(std::move(name),
+                   targetParallelism,
+                   0,
+                   extraThreads,
+                   threadFactory,
+                   allowWorkOffPoolThreads) {
         }
 
         /**
@@ -263,7 +367,7 @@ namespace worker_pool {
         pool(const std::string& name, unsigned int targetParallelism, unsigned int extraThreads,
              bool allowWorkOffPoolThreads = true) : pool(
             name, targetParallelism, extraThreads,
-            [](const std::function<void()>& callback) { return std::thread(callback); },
+            defaultThreadFactory,
             allowWorkOffPoolThreads) {
         }
 
@@ -276,7 +380,7 @@ namespace worker_pool {
         pool(unsigned int targetParallelism, unsigned int extraThreads, bool allowWorkOffPoolThreads = true) : pool(
             "",
             targetParallelism, extraThreads,
-            [](const std::function<void()>& callback) { return std::thread(callback); },
+            defaultThreadFactory,
             allowWorkOffPoolThreads) {
         }
 
@@ -613,6 +717,87 @@ namespace worker_pool {
         }
     };
 
+    // template<typename ThreadFactory>
+    //     requires is_thread_factory<ThreadFactory>
+    class pool_builder {
+        std::string name;
+        unsigned int targetParallelism = 0;
+        std::optional<unsigned int> extraThreads;
+        bool allowWorkOffPoolThreads = true;
+        size_t queueSize = 0;
+        FullQueuePolicy fullQueuePolicy = FullQueuePolicy::Block;
+        using ThreadFactoryType = std::function<std::thread(const std::function<void()>&)>;
+        std::optional<ThreadFactoryType> threadFactory;
+        bool builtPool = false;
+
+    public:
+        void set_name(const std::string& name) {
+            this->name = name;
+        }
+
+        [[nodiscard]] std::string get_name() const {
+            return this->name;
+        }
+
+        void set_target_parallelism(unsigned int targetParallelism) {
+            this->targetParallelism = targetParallelism;
+        }
+
+        [[nodiscard]] unsigned int get_target_parallelism() const {
+            return this->targetParallelism;
+        }
+
+        void set_extra_threads(unsigned int extraThreads) {
+            this->extraThreads = extraThreads;
+        }
+
+        [[nodiscard]] std::optional<unsigned int> get_extra_threads() const {
+            return this->extraThreads;
+        }
+
+        void set_allow_work_off_pool_threads(bool allowWorkOffPoolThreads) {
+            this->allowWorkOffPoolThreads = allowWorkOffPoolThreads;
+        }
+
+        [[nodiscard]] bool allow_work_off_pool_threads() const {
+            return allowWorkOffPoolThreads;
+        }
+
+        void set_queue_size(unsigned int queueSize) {
+            this->queueSize = queueSize;
+        }
+
+        [[nodiscard]] unsigned int get_queue_size() const {
+            return this->queueSize;
+        }
+
+        void set_full_queue_policy(FullQueuePolicy fullQueuePolicy) {
+            this->fullQueuePolicy = fullQueuePolicy;
+        }
+
+        [[nodiscard]] FullQueuePolicy get_full_queue_policy() const {
+            return this->fullQueuePolicy;
+        }
+
+        void set_thread_factory(ThreadFactoryType threadFactory) {
+            this->threadFactory = threadFactory;
+        }
+
+        [[nodiscard]] std::optional<ThreadFactoryType> get_thread_factory() {
+            return this->threadFactory;
+        }
+
+        [[nodiscard]] pool build() {
+            if (builtPool)
+                throw std::runtime_error("This builder has already built a pool");
+            builtPool = true;
+            return pool(name, targetParallelism, extraThreads.value_or(targetParallelism),
+                        queueSize, fullQueuePolicy,
+                        threadFactory.value_or(pool::defaultThreadFactory),
+                        allowWorkOffPoolThreads);
+        }
+    };
+
     class task_base {
         friend class pool;
 
@@ -771,7 +956,7 @@ namespace worker_pool {
                    TArgs... args) -> task<decltype(std::invoke(callback, args...))> {
         using TResult = decltype(std::invoke(callback, args...));
         static_assert(std::is_copy_constructible_v<TResult>, "Task result must be copy constructible");
-        std::lock_guard lock(threadsMutex);
+        std::unique_lock lock(threadsMutex);
         throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this,
                                              lastItemId++, name);
@@ -788,6 +973,23 @@ namespace worker_pool {
                 throw;
             }
         }));
+
+        if (maxUnstarted > 0 && unstarted.size() >= maxUnstarted) {
+            switch (fullQueuePolicy) {
+                default:
+                case FullQueuePolicy::Block:
+                    threadsCv.wait(lock, [&] {
+                        return unstarted.size() < maxUnstarted;
+                    });
+                    break;
+                case FullQueuePolicy::DropOld:
+                    unstarted.pop_front();
+                    break;
+                case FullQueuePolicy::DropNew:
+                    wi->trySetCanceled();
+                    return task<TResult>(wi);
+            }
+        }
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
         threadsCv.notify_one();
@@ -803,7 +1005,7 @@ namespace worker_pool {
     template<typename TCallback, typename... TArgs>
         requires invocable_returns_void<TCallback, TArgs...>
     auto pool::add(const std::string& name, const TCallback& callback, TArgs... args) -> task<void> {
-        std::lock_guard lock(threadsMutex);
+        std::unique_lock lock(threadsMutex);
         throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this, lastItemId++, name);
         auto* pwi = wi.get(); // Avoid reference cycle
@@ -819,6 +1021,23 @@ namespace worker_pool {
                 throw;
             }
         }));
+
+        if (maxUnstarted > 0 && unstarted.size() >= maxUnstarted) {
+            switch (fullQueuePolicy) {
+                default:
+                case FullQueuePolicy::Block:
+                    threadsCv.wait(lock, [&] {
+                        return unstarted.size() < maxUnstarted;
+                    });
+                    break;
+                case FullQueuePolicy::DropOld:
+                    unstarted.pop_front();
+                    break;
+                case FullQueuePolicy::DropNew:
+                    wi->trySetCanceled();
+                    return task<void>(wi);
+            }
+        }
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
         threadsCv.notify_one();
