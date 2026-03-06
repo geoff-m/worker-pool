@@ -105,10 +105,6 @@ namespace worker_pool {
         friend class task;
         friend class task_base;
 
-        // template<typename ThreadFactory>
-        //     requires is_thread_factory<ThreadFactory>
-        //friend class pool_builder;
-
         const std::string name;
         static std::atomic<unsigned int> id;
         std::atomic<size_t> addedTaskCount = 0;
@@ -561,18 +557,12 @@ namespace worker_pool {
                 return true;
 
             // Block this thread.
-            if (executingWorkItem && threadOwningPool
-                ==
-                this
-            ) {
+            if (executingWorkItem && threadOwningPool == this) {
                 --readyThreads;
                 threadsCv.notify_one();
             }
             const auto status = workItem->future.wait_until(timeout_time);
-            if (executingWorkItem && threadOwningPool
-                ==
-                this
-            ) {
+            if (executingWorkItem && threadOwningPool == this) {
                 ++readyThreads;
             }
 
@@ -952,7 +942,7 @@ namespace worker_pool {
          */
         void get() {
             wait();
-            (void) wi->getResult();
+            (void)wi->getResult();
         }
     };
 
