@@ -125,3 +125,229 @@ TEST(BoundedQueue, DropNew) {
     EXPECT_TRUE(didTask2);
     EXPECT_FALSE(didTask3);
 }
+
+TEST(BoundedQueue, BlockTryAddVoid) {
+    pool_builder builder;
+    builder.set_target_parallelism(1);
+    builder.set_extra_threads(0);
+    builder.set_queue_size(1);
+    builder.set_full_queue_policy(FullQueuePolicy::Block);
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool task1Started = false;
+
+        auto pool = builder.build();
+        pool.add([&] {
+            {
+                std::lock_guard lock(mutex);
+                task1Started = true;
+            }
+            cv.notify_one();
+            sleepMs(1000);
+        });
+        // Fill up the queue.
+        pool.add([&] {
+        });
+        {
+            std::unique_lock lock(mutex);
+            cv.wait(lock, [&] { return task1Started; });
+        }
+        task<void> task;
+        EXPECT_FALSE(pool.try_add(task, []{}));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ (void)arg; }, 5));
+    }
+}
+
+TEST(BoundedQueue, BlockTryAddNonVoid) {
+    pool_builder builder;
+    builder.set_target_parallelism(1);
+    builder.set_extra_threads(0);
+    builder.set_queue_size(1);
+    builder.set_full_queue_policy(FullQueuePolicy::Block);
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool task1Started = false;
+
+        auto pool = builder.build();
+        pool.add([&] {
+            {
+                std::lock_guard lock(mutex);
+                task1Started = true;
+            }
+            cv.notify_one();
+            sleepMs(1000);
+        });
+        // Fill up the queue.
+        pool.add([&] {
+        });
+        {
+            std::unique_lock lock(mutex);
+            cv.wait(lock, [&] { return task1Started; });
+        }
+
+        task<int> task;
+        EXPECT_FALSE(pool.try_add(task, []{ return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ return arg; }, 5));
+    }
+}
+
+TEST(BoundedQueue, DropOldTryAddVoid) {
+    pool_builder builder;
+    builder.set_target_parallelism(1);
+    builder.set_extra_threads(0);
+    builder.set_queue_size(1);
+    builder.set_full_queue_policy(FullQueuePolicy::DropOld);
+    bool task1Started = false;
+    bool task2Started = false;
+    bool task3Started = false;
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        auto pool = builder.build();
+        pool.add([&] {
+            {
+                std::lock_guard lock(mutex);
+                task1Started = true;
+            }
+            cv.notify_one();
+            sleepMs(1000);
+        });
+        {
+            std::unique_lock lock(mutex);
+            cv.wait(lock, [&] { return task1Started; });
+        }
+        pool.add([&] {
+            task2Started = true;
+        });
+
+        task<void> task;
+        EXPECT_FALSE(pool.try_add(task, [&]{ task3Started = true; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ task3Started = true; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ task3Started = true; (void)arg; }, 5));
+    }
+    EXPECT_TRUE(task1Started);
+    EXPECT_TRUE(task2Started);
+    EXPECT_FALSE(task3Started);
+}
+
+
+TEST(BoundedQueue, DropOldTryAddNonVoid) {
+    pool_builder builder;
+    builder.set_target_parallelism(1);
+    builder.set_extra_threads(0);
+    builder.set_queue_size(1);
+    builder.set_full_queue_policy(FullQueuePolicy::DropOld);
+    bool task1Started = false;
+    bool task2Started = false;
+    bool task3Started = false;
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        auto pool = builder.build();
+        pool.add([&] {
+            {
+                std::lock_guard lock(mutex);
+                task1Started = true;
+            }
+            cv.notify_one();
+            sleepMs(1000);
+        });
+        {
+            std::unique_lock lock(mutex);
+            cv.wait(lock, [&] { return task1Started; });
+        }
+        pool.add([&] {
+            task2Started = true;
+        });
+
+        task<int> task;
+        EXPECT_FALSE(pool.try_add(task, [&]{task3Started = true; return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ task3Started = true; return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ task3Started = true; return arg; }, 5));
+    }
+    EXPECT_TRUE(task1Started);
+    EXPECT_TRUE(task2Started);
+    EXPECT_FALSE(task3Started);
+}
+
+TEST(BoundedQueue, DropNewTryAddVoid) {
+    pool_builder builder;
+    builder.set_target_parallelism(1);
+    builder.set_extra_threads(0);
+    builder.set_queue_size(1);
+    builder.set_full_queue_policy(FullQueuePolicy::DropNew);
+    bool task1Started = false;
+    bool task2Started = false;
+    bool task3Started = false;
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        auto pool = builder.build();
+        pool.add([&] {
+            {
+                std::lock_guard lock(mutex);
+                task1Started = true;
+            }
+            cv.notify_one();
+            sleepMs(1000);
+        });
+        {
+            std::unique_lock lock(mutex);
+            cv.wait(lock, [&] { return task1Started; });
+        }
+        pool.add([&] {
+            task2Started = true;
+        });
+
+        task<void> task;
+        EXPECT_FALSE(pool.try_add(task, [&]{ task3Started = true; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ task3Started = true; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){task3Started = true; (void)arg; }, 5));
+    }
+    EXPECT_TRUE(task1Started);
+    EXPECT_TRUE(task2Started);
+    EXPECT_FALSE(task3Started);
+}
+
+TEST(BoundedQueue, DropNewTryAddNonVoid) {
+    pool_builder builder;
+    builder.set_target_parallelism(1);
+    builder.set_extra_threads(0);
+    builder.set_queue_size(1);
+    builder.set_full_queue_policy(FullQueuePolicy::DropNew);
+    bool task1Started = false;
+    bool task2Started = false;
+    bool task3Started = false;
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        auto pool = builder.build();
+        pool.add([&] {
+            {
+                std::lock_guard lock(mutex);
+                task1Started = true;
+            }
+            cv.notify_one();
+            sleepMs(1000);
+        });
+        {
+            std::unique_lock lock(mutex);
+            cv.wait(lock, [&] { return task1Started; });
+        }
+        pool.add([&] {
+            task2Started = true;
+        });
+
+        task<int> task;
+        EXPECT_FALSE(pool.try_add(task, [&]{ task3Started = true; return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ task3Started = true; return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ task3Started = true; return arg; }, 5));
+    }
+    EXPECT_TRUE(task1Started);
+    EXPECT_TRUE(task2Started);
+    EXPECT_FALSE(task3Started);
+}

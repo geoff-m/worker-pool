@@ -30,6 +30,19 @@ concept invocable_returns_void = std::invocable<TCallback, TArgs...> &&
                                  };
 
 template<typename T>
+concept is_not_void = !std::same_as<void, T>;
+
+template<typename TCallback, typename... TArgs>
+concept invocable_returns_nonvoid = std::invocable<TCallback, TArgs...> &&
+                                 requires(TCallback&& callback, TArgs&&... args)
+{
+    {
+        std::invoke(std::forward<TCallback>(callback),
+                    std::forward<TArgs>(args)...)
+    } -> is_not_void;
+};
+
+template<typename T>
 concept is_thread_factory = requires(T factory)
 {
     {
@@ -440,7 +453,8 @@ namespace worker_pool {
          * @return A task representing the work associated with this call.
          */
         template<typename TCallback, typename... TArgs>
-        auto add(const TCallback& callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))>;
+        requires invocable_returns_nonvoid<TCallback, TArgs...>
+        auto add(const TCallback& callback, TArgs... args) -> task<std::invoke_result_t<TCallback, TArgs...>>;
 
         /**
          * Adds a callback to the pool.
@@ -452,8 +466,38 @@ namespace worker_pool {
          * @return A task representing the work associated with this call.
          */
         template<typename TCallback, typename... TArgs>
+        requires invocable_returns_nonvoid<TCallback, TArgs...>
         auto add(const std::string& name, const TCallback& callback,
-                 TArgs... args) -> task<decltype(std::invoke(callback, args...))>;
+                 TArgs... args) -> task<std::invoke_result_t<TCallback, TArgs...>>;
+
+
+        /**
+         * If the pool's queue is not full, adds a callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
+         * @param newTask The newly created task, if this function returned true
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return A task representing the work associated with this call.
+         */
+        template<typename TCallback, typename... TArgs>
+        requires invocable_returns_nonvoid<TCallback, TArgs...>
+        bool try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask, const TCallback& callback, TArgs... args);
+
+        /**
+         * If the pool's queue is not full, adds a callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
+         * @param newTask The newly created task, if this function returned true
+         * @param name The name of the task
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return A task representing the work associated with this call.
+         */
+        template<typename TCallback, typename... TArgs>
+        requires invocable_returns_nonvoid<TCallback, TArgs...>
+        bool try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask, const std::string& name,
+                 const TCallback& callback, TArgs... args);
 
         /**
          * Adds a void callback to the pool.
@@ -471,7 +515,7 @@ namespace worker_pool {
          * Adds a void callback to the pool.
          * @tparam TCallback Type of the callback function.
          * @tparam TArgs Types of the arguments to the callback.
-         * @param name Name of the task
+         * @param name The name of the task
          * @param callback The function that will perform the work.
          * @param args The arguments, if any, to the callback function.
          * @return A task representing the work associated with this call.
@@ -479,6 +523,33 @@ namespace worker_pool {
         template<typename TCallback, typename... TArgs>
             requires invocable_returns_void<TCallback, TArgs...>
         auto add(const std::string& name, const TCallback& callback, TArgs... args) -> task<void>;
+
+        /**
+         * If the pool's queue is not full, adds a void callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
+         * @param newTask The newly created task, if this function returned true
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return A Boolean value indicating whether a task was created.
+         */
+        template<typename TCallback, typename... TArgs>
+            requires invocable_returns_void<TCallback, TArgs...>
+        bool try_add(task<void>& newTask, const TCallback& callback, TArgs... args);
+
+        /**
+         * If the pool's queue is not full, adds a void callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
+         * @param newTask The newly created task, if this function returned true
+         * @param name The name of the task
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return A Boolean value indicating whether a task was created.
+         */
+        template<typename TCallback, typename... TArgs>
+            requires invocable_returns_void<TCallback, TArgs...>
+        bool try_add(task<void>& newTask, const std::string& name, const TCallback& callback, TArgs... args);
 
         /**
          * Blocks until at least one thread is idle,
@@ -605,6 +676,10 @@ namespace worker_pool {
             return true;
         }
 
+        [[nodiscard]] bool unsafeQueueIsFull() const {
+            return maxUnstarted > 0 && unstarted.size() >= maxUnstarted;
+        }
+
     public:
         /**
          * Blocks until all of the given tasks are finished.
@@ -717,8 +792,6 @@ namespace worker_pool {
         }
     };
 
-    // template<typename ThreadFactory>
-    //     requires is_thread_factory<ThreadFactory>
     class pool_builder {
         std::string name;
         unsigned int targetParallelism = 0;
@@ -914,6 +987,11 @@ namespace worker_pool {
 
     public:
         /**
+         * Creates an invalid task. Only operator= is legal on such a task.
+         */
+        task() : task_base(nullptr) {}
+
+        /**
          * Gets the result returned from this task, waiting if necessary.
          * If the task threw an exception, rethrows it.
          * @return The result returned from this task.
@@ -937,6 +1015,11 @@ namespace worker_pool {
 
     public:
         /**
+         * Creates an invalid task. Only operator= is legal on such a task.
+         */
+        task() : task_base(nullptr) {}
+
+        /**
          * Blocks until this task is complete.
          * If the task threw an exception, rethrows it.
          */
@@ -947,14 +1030,16 @@ namespace worker_pool {
     };
 
     template<typename TCallback, typename... TArgs>
-    auto pool::add(const TCallback& callback, TArgs... args) -> task<decltype(std::invoke(callback, args...))> {
+    requires invocable_returns_nonvoid<TCallback, TArgs...>
+    auto pool::add(const TCallback& callback, TArgs... args) -> task<std::invoke_result_t<TCallback, TArgs...>> {
         return add(generateTaskName(), callback, args...);
     }
 
     template<typename TCallback, typename... TArgs>
+    requires invocable_returns_nonvoid<TCallback, TArgs...>
     auto pool::add(const std::string& name, const TCallback& callback,
-                   TArgs... args) -> task<decltype(std::invoke(callback, args...))> {
-        using TResult = decltype(std::invoke(callback, args...));
+                   TArgs... args) -> task<std::invoke_result_t<TCallback, TArgs...>> {
+        using TResult = std::invoke_result_t<TCallback, TArgs...>;
         static_assert(std::is_copy_constructible_v<TResult>, "Task result must be copy constructible");
         std::unique_lock lock(threadsMutex);
         throwIfStopped();
@@ -974,7 +1059,7 @@ namespace worker_pool {
             }
         }));
 
-        if (maxUnstarted > 0 && unstarted.size() >= maxUnstarted) {
+        if (unsafeQueueIsFull()) {
             switch (fullQueuePolicy) {
                 default:
                 case FullQueuePolicy::Block:
@@ -994,6 +1079,46 @@ namespace worker_pool {
         wi->enableDeletion(it);
         threadsCv.notify_one();
         return task<TResult>(wi);
+    }
+
+    template<typename TCallback, typename... TArgs>
+    requires invocable_returns_nonvoid<TCallback, TArgs...>
+    bool pool::try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
+                   const TCallback& callback, TArgs... args) {
+        return try_add(newTask, generateTaskName(), callback, args...);
+    }
+
+    template<typename TCallback, typename... TArgs>
+    requires invocable_returns_nonvoid<TCallback, TArgs...>
+    bool pool::try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask, const std::string& name,
+                   const TCallback& callback, TArgs... args) {
+        std::unique_lock lock(threadsMutex);
+        throwIfStopped();
+        if (unsafeQueueIsFull()) {
+            return false;
+        }
+        using TResult = std::invoke_result_t<TCallback, TArgs...>;
+        static_assert(std::is_copy_constructible_v<TResult>, "Task result must be copy constructible");
+        auto wi = std::make_shared<WorkItem>(*this,
+                                             lastItemId++, name);
+        auto* pwi = wi.get(); // Avoid reference cycle
+        wi->setCallback(std::packaged_task<std::any()>([=] {
+            pwi->throwIfCanceled();
+            try {
+                TResult result = std::invoke(callback, args...);
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                return std::any(result);
+            } catch (...) {
+                // Ensure the WorkItem state gets marked as Done even if user code throws.
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                throw;
+            }
+        }));
+        const auto it = unstarted.emplace(unstarted.end(), wi);
+        wi->enableDeletion(it);
+        threadsCv.notify_one();
+        newTask = task<TResult>(wi);
+        return true;
     }
 
     template<typename TCallback, typename... TArgs>
@@ -1022,7 +1147,7 @@ namespace worker_pool {
             }
         }));
 
-        if (maxUnstarted > 0 && unstarted.size() >= maxUnstarted) {
+        if (unsafeQueueIsFull()) {
             switch (fullQueuePolicy) {
                 default:
                 case FullQueuePolicy::Block:
@@ -1042,6 +1167,41 @@ namespace worker_pool {
         wi->enableDeletion(it);
         threadsCv.notify_one();
         return task<void>(wi);
+    }
+
+    template<typename TCallback, typename... TArgs>
+        requires invocable_returns_void<TCallback, TArgs...>
+    bool pool::try_add(task<void>& newTask, const TCallback& callback, TArgs... args) {
+        return try_add(newTask, generateTaskName(), callback, args...);
+    }
+
+    template<typename TCallback, typename... TArgs>
+        requires invocable_returns_void<TCallback, TArgs...>
+    bool pool::try_add(task<void>& newTask, const std::string& name, const TCallback& callback, TArgs... args) {
+        std::unique_lock lock(threadsMutex);
+        throwIfStopped();
+        if (unsafeQueueIsFull()) {
+            return false;
+        }
+        auto wi = std::make_shared<WorkItem>(*this, lastItemId++, name);
+        auto* pwi = wi.get(); // Avoid reference cycle
+        wi->setCallback(std::packaged_task<std::any()>([=] {
+            pwi->throwIfCanceled();
+            try {
+                std::invoke(callback, args...);
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                return std::any(0); // dummy value
+            } catch (...) {
+                // Ensure the WorkItem state gets marked as Done even if user code throws.
+                pwi->state.store(TaskState::Done, std::memory_order::release);
+                throw;
+            }
+        }));
+        const auto it = unstarted.emplace(unstarted.end(), wi);
+        wi->enableDeletion(it);
+        threadsCv.notify_one();
+        newTask = task<void>(wi);
+        return true;
     }
 
     template<typename TaskIterator>

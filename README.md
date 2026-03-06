@@ -10,7 +10,8 @@ WorkerPool is a thread pool. It aims to be easy to use.
 - Tasks can be void or have copy-constructible output
 - Tasks can create and await other tasks
 - The pool can await multiple tasks at once
-- Supports timeouts for waits
+- Optionally operates as a bounded blocking queue
+- All blocking operations support timeouts
 - Supports cancellation for unstarted tasks
 - Supports tasks that throw exceptions
 - Not global, allows multiple pools in one process
@@ -232,8 +233,7 @@ All of them can be omitted, and good defaults will be used instead.
 | `threadFactory`           | `function<thread(const function<void()>&)>` | Callback to create a thread that runs the given function                                                                   | The obvious implementation     |
 | `allowWorkOffPoolThreads` | `bool`                                      | Whether calling `task::wait` on a non-pool thread is allowed to do pool work while waiting                                 | `true`                         |
 
-#### pool_builder
-A builder class is provided, which can clean up call sites with large argument lists.
+A builder class is provided, which can facilitate a more readable alternative to call sites with large argument lists.
 ```c++
 pool_bulider pb;
 
@@ -281,8 +281,13 @@ cancel the oldest task and enqueue the new one.
  - `DropNew`: When attempting to add a new task to a full queue,
 cancel the new task and don't enqueue it.
 
+#### Nonblocking task creation with a bounded queue
+If you want to add a task only if the queue is not full, call `try_add`.
+`try_add` returns false immediately if the queue is full,
+regardless of the configured full queue policy.
+
 #### Waiting for task completion without a task object
-You can avoid storing a large number of tasks in order to wait for them.
+There are ways to avoid having to store a large number of tasks in order to wait for them.
 The least error-prone alternative to `wait_all` is to destroy the pool.
 ```c++
 {
