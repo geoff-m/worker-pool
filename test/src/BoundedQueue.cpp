@@ -139,6 +139,7 @@ class FullQueue {
 
     State state;
     worker_pool::pool& pool;
+    std::vector<task<void>> tasks;
 
 public:
     explicit FullQueue(worker_pool::pool& pool)
@@ -146,17 +147,18 @@ public:
           pool(pool) {
         const auto tasksToCreate = pool.get_target_parallelism() + pool.get_queue_size();
         for (unsigned int i = 1; i <= tasksToCreate; ++i) {
-            pool.add([&] {
+            tasks.emplace_back(pool.add([&] {
                 std::unique_lock lock(mutex);
                 cv.wait(lock, [&] {
                     return state == State::EXITING;
                 });
-            });
+            }));
         }
     }
 
     ~FullQueue() {
         release();
+        worker_pool::pool::wait_all(tasks);
     }
 
 private:
