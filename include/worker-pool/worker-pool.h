@@ -735,7 +735,7 @@ namespace worker_pool {
         std::string name;
         unsigned int targetParallelism = 0;
         std::optional<unsigned int> extraThreads;
-        bool allowWorkOffPoolThreads_ = true;
+        bool allowWorkOffPoolThreads = true;
         size_t queueSize = 0;
         FullQueuePolicy fullQueuePolicy = FullQueuePolicy::Block;
         using ThreadFactoryType = std::function<std::thread(const std::function<void()>&)>;
@@ -743,59 +743,59 @@ namespace worker_pool {
         bool builtPool = false;
 
     public:
-        void setName(const std::string& name) {
+        void set_name(const std::string& name) {
             this->name = name;
         }
 
-        [[nodiscard]] std::string getName() const {
+        [[nodiscard]] std::string get_name() const {
             return this->name;
         }
 
-        void setTargetParallelism(unsigned int targetParallelism) {
+        void set_target_parallelism(unsigned int targetParallelism) {
             this->targetParallelism = targetParallelism;
         }
 
-        [[nodiscard]] unsigned int getTargetParallelism() const {
+        [[nodiscard]] unsigned int get_target_parallelism() const {
             return this->targetParallelism;
         }
 
-        void setExtraThreads(unsigned int extraThreads) {
+        void set_extra_threads(unsigned int extraThreads) {
             this->extraThreads = extraThreads;
         }
 
-        [[nodiscard]] std::optional<unsigned int> getExtraThreads() const {
+        [[nodiscard]] std::optional<unsigned int> get_extra_threads() const {
             return this->extraThreads;
         }
 
-        void setAllowWorkOffPoolThreads(bool allowWorkOffPoolThreads) {
-            this->allowWorkOffPoolThreads_ = allowWorkOffPoolThreads;
+        void set_allow_work_off_pool_threads(bool allowWorkOffPoolThreads) {
+            this->allowWorkOffPoolThreads = allowWorkOffPoolThreads;
         }
 
-        [[nodiscard]] bool allowWorkOffPoolThreads() const {
-            return allowWorkOffPoolThreads_;
+        [[nodiscard]] bool allow_work_off_pool_threads() const {
+            return allowWorkOffPoolThreads;
         }
 
-        void setQueueSize(unsigned int queueSize) {
+        void set_queue_size(unsigned int queueSize) {
             this->queueSize = queueSize;
         }
 
-        [[nodiscard]] unsigned int getQueueSize() const {
+        [[nodiscard]] unsigned int get_queue_size() const {
             return this->queueSize;
         }
 
-        void setFullQueuePolicy(FullQueuePolicy fullQueuePolicy) {
+        void set_full_queue_policy(FullQueuePolicy fullQueuePolicy) {
             this->fullQueuePolicy = fullQueuePolicy;
         }
 
-        [[nodiscard]] FullQueuePolicy getFullQueuePolicy() const {
+        [[nodiscard]] FullQueuePolicy get_full_queue_policy() const {
             return this->fullQueuePolicy;
         }
 
-        void setThreadFactory(ThreadFactoryType threadFactory) {
+        void set_thread_factory(ThreadFactoryType threadFactory) {
             this->threadFactory = threadFactory;
         }
 
-        [[nodiscard]] std::optional<ThreadFactoryType> getThreadFactory() {
+        [[nodiscard]] std::optional<ThreadFactoryType> get_thread_factory() {
             return this->threadFactory;
         }
 
@@ -806,7 +806,7 @@ namespace worker_pool {
             return pool(name, targetParallelism, extraThreads.value_or(targetParallelism),
                         queueSize, fullQueuePolicy,
                         threadFactory.value_or(pool::defaultThreadFactory),
-                        allowWorkOffPoolThreads_);
+                        allowWorkOffPoolThreads);
         }
     };
 

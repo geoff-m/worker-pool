@@ -218,6 +218,99 @@ if (t.try_cancel()) {
 }
 ```
 
+### Pool creation options
+The following table lists all parameters that can be set when creating a pool.
+All of them can be omitted, and good defaults will be used instead.
+
+| **Name**                  | **Type**                                    | **Meaning**                                                                                                                | **Default**                    |
+|---------------------------|---------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|--------------------------------|
+| `name`                    | `std::string`                               | Name of the pool returned by `pool::get_name()`                                                                            | "pool#" where # is unique      |
+| `targetParallelism`       | `unsigned int`                              | Number of tasks the pool will try to do in parallel                                                                        | Detected hardware thread count |
+| `extraThreads`            | `unsigned int`                              | Maximum number of threads beyond `targetParallelism` that the pool will use as backup if some threads get blocked by waits | Value of `targetParallelism`   |
+| `queueSize`               | `size_t`                                    | Maximum number of tasks to hold in the queue                                                                               | `0` (= unbounded)              |
+| `fullQueuePolicy`         | `FullQueuePolicy`                           | Controls what should happen when attempting to add a new task when the queue is at its size limit                          | `FullQueuePolicy::Block`       |
+| `threadFactory`           | `function<thread(const function<void()>&)>` | Callback to create a thread that runs the given function                                                                   | The obvious implementation     |
+| `allowWorkOffPoolThreads` | `bool`                                      | Whether calling `task::wait` on a non-pool thread is allowed to do pool work while waiting                                 | `true`                         |
+
+#### pool_builder
+A builder class is provided, which can clean up call sites with large argument lists.
+```c++
+pool_bulider pb;
+
+// Call whatever setters you want on the builder.
+pb.set_target_parallelism(4);
+pb.set_name("my pool");
+
+// Finally, construct the pool using the options you set on the builder.
+pool pool = pb.build();
+```
+
+### Backpressure
+
+Some applications may need to create a large number of pool tasks,
+or some tasks may be expensive to initialize.
+For example, in the following code, a large number of tasks are created.
+```c++
+pool pool;
+std::vector<task<void>> tasks;
+for (int i = 0; i < 10000000; ++i) {
+    tasks.emplace_back(pool.add(/* ... */));
+}
+pool::wait_all(tasks);
+```
+For convenience, we offer a few alternatives for situations like the above.
+
+#### Limiting task creation by bounding the queue
+```c++
+pool_builder builder;
+builder.set_target_parallelism(8);
+builder.set_queue_size(16);
+//builder.setFullQueuePolicy(FullQueuePolicy::Block); // Implicit default
+auto pool = builder.build();
+for (int i = 0; i < 10000000; ++i) {
+    pool.add(/* ... */);
+}
+```
+The above example bounds the pool's task queue size to 16.
+Because the policy is the default of `Block`,
+calls to `pool.add` wait until there is space for the new task in the queue.
+
+In addition to the default of `Block`, `FullQueuePolicy` has two other options:
+ - `DropOld`: When attempting to add a new task to a full queue,
+cancel the oldest task and enqueue the new one.
+ - `DropNew`: When attempting to add a new task to a full queue,
+cancel the new task and don't enqueue it.
+
+#### Waiting for task completion without a task object
+You can avoid storing a large number of tasks in order to wait for them.
+The least error-prone alternative to `wait_all` is to destroy the pool.
+```c++
+{
+    pool pool;
+    for (int i = 0; i < 10000000; ++i) {
+        pool.add(/* ... */);
+    }
+} // All pending tasks will be awaited upon destruction of pool.
+```
+
+Another way is to call `await_idle_pool()` (or a timed version).
+The function `await_idle_thread()` (or a timed version) can be employed to similar ends.
+```c++
+  pool pool;
+  for (int i = 0; i < 10000000; ++i) {
+      pool.await_idle_thread();
+      pool.add(/* ... */);
+  }
+pool.await_idle_pool();
+```
+In the above example, the pool's degree of parallelism limits the number of tasks
+that will exist simultaneously.
+
+However, since `await_idle_thread()` and `await_idle_pool()` present only an ephemeral view of the pool's state,
+applications that rely on them must carefully avoid TOCTOU bugs.
+It is preferred as less error-prone to wait for specific tasks by calling a `wait*` function,
+and the preferred way to wait for an entire pool to be finished is to destroy the pool.
+
 ### Custom thread factory
 
 You can provide your own threads for use by the pool.
@@ -335,43 +428,6 @@ and does not attempt to find or prevent other kinds of deadlocks that may exist 
 
 Further discussion of what this feature is and how it works can be found
 [on my blog](https://geoff.space/2025/12/detecting-deadlocks-in-a-thread-pool/).
-
-### Waiting for pool capacity
-
-For convenience, we provide a method `await_idle_thread` along with timed versions.
-This can be used as a simple backpressure mechanism,
-which may be useful if you need to create a large number of pool tasks,
-or if your tasks are expensive to initialize.
-For example, in the following code, a large number of tasks are created.
-```c++
-pool pool;
-std::vector<task<void>> tasks;
-for (int i = 0; i < 10000000; ++i) {
-    tasks.emplace_back(pool.add(/* ... */));
-}
-pool::wait_all(tasks);
-```
-If you are concerned about the cost of rapidly creating and storing
-all these closures and vector elements, a simple alternative
-is to defer creation of pool tasks until the pool is ready for them.
-The above code could be rewritten thus:
-```c++
-{
-    pool pool;
-    for (int i = 0; i < 10000000; ++i) {
-        pool.await_idle_thread();
-        pool.add(/* ... */);
-    }
-} // All pending tasks will be awaited upon destruction of pool.
-```
-In the version using `await_idle_thread`,
-the pool's parallelism limits the number of tasks that exist simultaneously.
-
-Similarly, you can detect the entire pool's being idle using `await_idle_pool`.
-However, since these functions present only an ephemeral view of the pool's state,
-applications that rely on them must carefully avoid TOCTOU bugs.
-It is preferred as less error-prone to wait for specific tasks by calling a `wait*` function,
-and the preferred way to wait for an entire pool to be finished is to destroy the pool.
 
 ### More examples
 
