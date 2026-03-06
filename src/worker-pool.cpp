@@ -135,6 +135,14 @@ namespace worker_pool {
         });
     }
 
+    unsigned int pool::get_target_parallelism() const {
+        return targetParallelism;
+    }
+
+    size_t pool::get_queue_size() const {
+        return maxUnstarted;
+    }
+
     void pool::throwIfStopped() const {
         if (stopping.load(std::memory_order::acquire))
             throw std::runtime_error("Cannot add to stopped thread WorkerPool");
@@ -400,6 +408,7 @@ deadlockCheckLock.unlock(); \
             auto itemValue = *item; // NOLINT(*-unnecessary-copy-initialization)
             unstarted.erase(item);
             threadsLock.unlock();
+            threadsCv.notify_all();
             itemValue->execute();
             --readyThreads;
             threadsCv.notify_all();

@@ -125,7 +125,6 @@ namespace worker_pool {
         std::condition_variable threadsCv;
         std::vector<std::thread> threads;
         const unsigned int targetParallelism;
-        const unsigned int maxWaiterThreads;
         const bool allowWorkOffPoolThreads;
 
         [[nodiscard]] static std::string generatePoolName();
@@ -234,7 +233,6 @@ namespace worker_pool {
               fullQueuePolicy(fullQueuePolicy),
               name(name.empty() ? generatePoolName() : std::move(name)),
               targetParallelism(targetParallelism > 0 ? targetParallelism : detectParallelism()),
-              maxWaiterThreads(extraThreads),
               allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
             std::lock_guard lock(threadsMutex);
             const auto totalThreads = targetParallelism + extraThreads;
@@ -790,6 +788,9 @@ namespace worker_pool {
         static bool wait_all_until(IterableTasks tasks, const std::chrono::time_point<Clock, Duration>& timeout_time) {
             return naive_wait_all_until(tasks.begin(), tasks.end(), timeout_time);
         }
+
+        [[nodiscard]] unsigned int get_target_parallelism() const;
+        [[nodiscard]] size_t get_queue_size() const;
     };
 
     class pool_builder {

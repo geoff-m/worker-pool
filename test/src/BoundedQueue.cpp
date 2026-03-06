@@ -1,6 +1,7 @@
 #include "TestUtils.h"
 #include "worker-pool/worker-pool.h"
 #include <chrono>
+#include <cstdio>
 
 using namespace worker_pool;
 
@@ -126,6 +127,54 @@ TEST(BoundedQueue, DropNew) {
     EXPECT_FALSE(didTask3);
 }
 
+class FullQueue {
+    std::mutex mutex;
+    std::condition_variable cv;
+
+    enum class State {
+        FILLING,
+        FULL,
+        EXITING
+    };
+
+    State state;
+    worker_pool::pool& pool;
+
+public:
+    explicit FullQueue(worker_pool::pool& pool)
+        : state(State::FILLING),
+          pool(pool) {
+        const auto tasksToCreate = pool.get_target_parallelism() + pool.get_queue_size();
+        for (unsigned int i = 1; i <= tasksToCreate; ++i) {
+            pool.add([&] {
+                std::unique_lock lock(mutex);
+                cv.wait(lock, [&] {
+                    return state == State::EXITING;
+                });
+            });
+        }
+    }
+
+    ~FullQueue() {
+        release();
+    }
+
+private:
+    bool isFull() {
+        task<void> t;
+        return !pool.try_add(t, [] {
+        });
+    }
+
+    void release() {
+        std::lock_guard lock(mutex);
+        {
+            state = State::EXITING;
+        }
+        cv.notify_all();
+    }
+};
+
 TEST(BoundedQueue, BlockTryAddVoid) {
     pool_builder builder;
     builder.set_target_parallelism(1);
@@ -133,26 +182,9 @@ TEST(BoundedQueue, BlockTryAddVoid) {
     builder.set_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::Block);
     {
-        std::mutex mutex;
-        std::condition_variable cv;
-        bool task1Started = false;
-
         auto pool = builder.build();
-        pool.add([&] {
-            {
-                std::lock_guard lock(mutex);
-                task1Started = true;
-            }
-            cv.notify_one();
-            sleepMs(1000);
-        });
-        // Fill up the queue.
-        pool.add([&] {
-        });
-        {
-            std::unique_lock lock(mutex);
-            cv.wait(lock, [&] { return task1Started; });
-        }
+        FullQueue fq(pool);
+
         task<void> task;
         EXPECT_FALSE(pool.try_add(task, []{}));
         EXPECT_FALSE(pool.try_add(task, "name", [&]{ }));
@@ -167,26 +199,8 @@ TEST(BoundedQueue, BlockTryAddNonVoid) {
     builder.set_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::Block);
     {
-        std::mutex mutex;
-        std::condition_variable cv;
-        bool task1Started = false;
-
         auto pool = builder.build();
-        pool.add([&] {
-            {
-                std::lock_guard lock(mutex);
-                task1Started = true;
-            }
-            cv.notify_one();
-            sleepMs(1000);
-        });
-        // Fill up the queue.
-        pool.add([&] {
-        });
-        {
-            std::unique_lock lock(mutex);
-            cv.wait(lock, [&] { return task1Started; });
-        }
+        FullQueue fq(pool);
 
         task<int> task;
         EXPECT_FALSE(pool.try_add(task, []{ return 123; }));
