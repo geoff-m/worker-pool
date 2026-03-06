@@ -33,6 +33,7 @@ add_executable(test-worker-pool
         src/TestAwaitIdleThread.cpp
         src/TestAwaitIdlePool.cpp
         src/BoundedQueue.cpp
+        src/TestPoolBuilder.cpp
 )
 
 target_include_directories(test-worker-pool PRIVATE src/include)

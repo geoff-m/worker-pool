@@ -224,11 +224,9 @@ namespace worker_pool {
             : maxUnstarted(queueSize),
               fullQueuePolicy(fullQueuePolicy),
               name(name.empty() ? generatePoolName() : std::move(name)),
-              targetParallelism(targetParallelism),
+              targetParallelism(targetParallelism > 0 ? targetParallelism : detectParallelism()),
               maxWaiterThreads(extraThreads),
               allowWorkOffPoolThreads(allowWorkOffPoolThreads) {
-            if (targetParallelism < 1)
-                throw std::invalid_argument("Target parallelism must be at least 1");
             std::lock_guard lock(threadsMutex);
             const auto totalThreads = targetParallelism + extraThreads;
             threads.reserve(totalThreads);
