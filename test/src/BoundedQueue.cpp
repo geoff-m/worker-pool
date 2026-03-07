@@ -138,13 +138,11 @@ class FullQueue {
     };
 
     State state;
-    worker_pool::pool& pool;
     std::vector<task<void>> tasks;
 
 public:
     explicit FullQueue(worker_pool::pool& pool)
-        : state(State::FILLING),
-          pool(pool) {
+        : state(State::FILLING) {
         unsigned int runningTasks = 0;
         // Add tasks to make all thread busy.
         for (unsigned int i = 1; i <= pool.get_target_parallelism(); ++i) {
