@@ -97,7 +97,7 @@ TEST(BasicTests, VoidFunction) {
 
 TEST(BasicTests, AddAfterShutdown) {
     pool pool(1);
-    pool.shutDown();
+    pool.shut_down();
     EXPECT_ANY_THROW(pool.add([]{}););
 }
 

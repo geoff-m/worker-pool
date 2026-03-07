@@ -10,7 +10,8 @@ WorkerPool is a thread pool. It aims to be easy to use.
 - Tasks can be void or have copy-constructible output
 - Tasks can create and await other tasks
 - The pool can await multiple tasks at once
-- Supports timeouts for waits
+- Optionally operates as a bounded blocking queue
+- All blocking operations support timeouts
 - Supports cancellation for unstarted tasks
 - Supports tasks that throw exceptions
 - Not global, allows multiple pools in one process
@@ -167,21 +168,21 @@ However, WorkerPool does offer some ways to stop work.
 
 #### Shutting down a pool
 
-Calling `shutDown` on a pool prevents new work from being added to it.
-`shutDown(false)` is called automatically in the pool destructor.
+Calling `shut_down` on a pool prevents new work from being added to it.
+`shut_down(false)` is called automatically in the pool destructor.
 
 ```c++
 pool p;
 p.add([]{});
-p.shutDown();
+p.shut_down();
 
 // This will throw an exception because the pool has been shut down.
 p.add([]{}); 
 ```
 
 By default, a pool eventually does all the work ever added to it,
-even after `shutDown` is called.
-By passing `true` to `shutDown`,
+even after `shut_down` is called.
+By passing `true` to `shut_down`,
 you can tell the pool to cancel all unstarted work.
 
 ```c++
@@ -192,7 +193,7 @@ auto t1 = pool.add([]{ sleep(2); });
 auto t2 = pool.add([]{ sleep(2); });
 auto t3 = pool.add([]{ sleep(2); });
 sleep(1); // One of the three tasks will likely begin.
-pool.shutDown(true); // This will cancel the other two unstarted tasks.
+pool.shut_down(true); // This will cancel the other two unstarted tasks.
 ```
 
 #### Canceling a specific task
@@ -232,8 +233,7 @@ All of them can be omitted, and good defaults will be used instead.
 | `threadFactory`           | `function<thread(const function<void()>&)>` | Callback to create a thread that runs the given function                                                                   | The obvious implementation     |
 | `allowWorkOffPoolThreads` | `bool`                                      | Whether calling `task::wait` on a non-pool thread is allowed to do pool work while waiting                                 | `true`                         |
 
-#### pool_builder
-A builder class is provided, which can clean up call sites with large argument lists.
+A builder class is provided, which can facilitate a more readable alternative to call sites with large argument lists.
 ```c++
 pool_bulider pb;
 
@@ -265,7 +265,7 @@ For convenience, we offer a few alternatives for situations like the above.
 pool_builder builder;
 builder.set_target_parallelism(8);
 builder.set_queue_size(16);
-//builder.setFullQueuePolicy(FullQueuePolicy::Block); // Implicit default
+//builder.set_full_queue_policy(FullQueuePolicy::Block); // Implicit default
 auto pool = builder.build();
 for (int i = 0; i < 10000000; ++i) {
     pool.add(/* ... */);
@@ -275,14 +275,33 @@ The above example bounds the pool's task queue size to 16.
 Because the policy is the default of `Block`,
 calls to `pool.add` wait until there is space for the new task in the queue.
 
-In addition to the default of `Block`, `FullQueuePolicy` has two other options:
+There are three options for `FullQueuePolicy`:
+- `Block` (default): When attempting to add a new task to a full queue, block until space is available.
  - `DropOld`: When attempting to add a new task to a full queue,
 cancel the oldest task and enqueue the new one.
  - `DropNew`: When attempting to add a new task to a full queue,
 cancel the new task and don't enqueue it.
 
+#### Nonblocking task creation with a bounded queue
+If you want to add a task only if the queue is not full, call `try_add`.
+If the queue is full when you call `try_add`, the full queue policy does not apply.
+Instead, the method immediately returns false and does not create a task.
+```c++
+task<int> maybeTask;
+if (pool.try_add([] { return 123; })) {
+    // Successfully added task to pool (queue was not full).
+    
+    /* ... */ = maybeTask.get(); // returns 123
+} else {
+    // Did not successfully add task to pool (queue was full).
+    
+    // Do not do this:
+    /* ... */ =  maybeTask.get(); // undefined behavior
+}
+```
+
 #### Waiting for task completion without a task object
-You can avoid storing a large number of tasks in order to wait for them.
+There are ways to avoid having to store a large number of tasks in order to wait for them.
 The least error-prone alternative to `wait_all` is to destroy the pool.
 ```c++
 {

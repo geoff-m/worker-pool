@@ -88,13 +88,13 @@ namespace worker_pool {
             = [](const std::function<void()>& callback) { return std::thread(callback); };
 
     pool::~pool() {
-        shutDown(false);
+        shut_down(false);
         for (auto& thread : threads) {
             thread.join();
         }
     }
 
-    void pool::shutDown(bool cancelUnstarted) {
+    void pool::shut_down(bool cancelUnstarted) {
         bool expected = false;
         if (!stopping.compare_exchange_strong(expected, true))
             return;
@@ -133,6 +133,18 @@ namespace worker_pool {
         threadsCv.wait(threadsLock, [&] {
             return readyThreads.load(std::memory_order::acquire) == 0 && unstarted.empty();
         });
+    }
+
+    unsigned int pool::get_target_parallelism() const {
+        return targetParallelism;
+    }
+
+    size_t pool::get_queue_size() const {
+        return maxUnstarted;
+    }
+
+    FullQueuePolicy pool::get_full_queue_policy() const {
+        return fullQueuePolicy;
     }
 
     void pool::throwIfStopped() const {
@@ -400,6 +412,7 @@ deadlockCheckLock.unlock(); \
             auto itemValue = *item; // NOLINT(*-unnecessary-copy-initialization)
             unstarted.erase(item);
             threadsLock.unlock();
+            threadsCv.notify_all();
             itemValue->execute();
             --readyThreads;
             threadsCv.notify_all();

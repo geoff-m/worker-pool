@@ -120,7 +120,7 @@ TEST(AwaitIdlePool, ReturnsAtShutDown) {
     constexpr auto TASK_TIME = std::chrono::milliseconds(2000);
     pool pool(1);
     auto task = pool.add([&] { std::this_thread::sleep_for(TASK_TIME); });
-    pool.shutDown();
+    pool.shut_down();
     pool.await_idle_pool();
 }
 
@@ -128,7 +128,7 @@ TEST(AwaitIdlePool, ReturnsAtShutDownFor) {
     constexpr auto TASK_TIME = std::chrono::milliseconds(2000);
     pool pool(1);
     auto task = pool.add([&] { std::this_thread::sleep_for(TASK_TIME); });
-    pool.shutDown();
+    pool.shut_down();
     pool.await_idle_pool_for(TASK_TIME+ std::chrono::seconds(1));
 }
 

@@ -24,7 +24,7 @@ TEST(Cancel, CancelNonvoidAtShutdown) {
         std::unique_lock lock(mutex);
         cv.wait(lock, [&] { return task1Started; });
     }
-    pool.shutDown(true);
+    pool.shut_down(true);
 
     EXPECT_EQ(1, t1.get());
     EXPECT_THROW((void)t2.get(), canceled_exception);
@@ -50,7 +50,7 @@ TEST(Cancel, CancelVoidAtShutdown) {
         std::unique_lock lock(mutex);
         cv.wait(lock, [&] { return task1Started; });
     }
-    pool.shutDown(true);
+    pool.shut_down(true);
 
     EXPECT_EQ(1, t1.get());
     EXPECT_THROW(t2.get(), canceled_exception);
@@ -67,7 +67,7 @@ TEST(Cancel, NoCancelAtShutdown) {
         sleepMs(1000);
         return 2;
     });
-    pool.shutDown();
+    pool.shut_down();
     EXPECT_EQ(1, t1.get());
     EXPECT_EQ(2, t2.get());
 }
