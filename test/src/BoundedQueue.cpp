@@ -145,15 +145,43 @@ public:
     explicit FullQueue(worker_pool::pool& pool)
         : state(State::FILLING),
           pool(pool) {
-        const auto tasksToCreate = pool.get_target_parallelism() + pool.get_queue_size();
-        for (unsigned int i = 1; i <= tasksToCreate; ++i) {
+        unsigned int runningTasks = 0;
+        // Add tasks to make all thread busy.
+        for (unsigned int i = 1; i <= pool.get_target_parallelism(); ++i) {
             tasks.emplace_back(pool.add([&] {
                 std::unique_lock lock(mutex);
+                ++runningTasks;
+                printf("FullQueue thread-occupying task started (runningTasks = %d)\n", runningTasks);
+                fflush(stdout);
+                cv.notify_all();
                 cv.wait(lock, [&] {
                     return state == State::EXITING;
                 });
+                printf("FullQueue task exiting\n");
+                fflush(stdout);
             }));
         }
+        std::unique_lock lock(mutex);
+        cv.wait(lock, [&] { return runningTasks == pool.get_target_parallelism(); });
+
+        // Add tasks to make queue full.
+        for (unsigned int i = 1; i <= pool.get_queue_size(); ++i) {
+            tasks.emplace_back(pool.add([&, i] {
+                std::unique_lock lock(mutex);
+                printf("FullQueue queue-occupying task %d started\n", i);
+                fflush(stdout);
+                cv.notify_all();
+                cv.wait(lock, [&] {
+                    return state == State::EXITING;
+                });
+                printf("FullQueue task exiting\n");
+                fflush(stdout);
+            }));
+        }
+        printf("FullQueue done adding tasks\n");
+
+        state = State::FULL;
+        printf("FullQueue believes queue to be full\n");
     }
 
     ~FullQueue() {
@@ -162,12 +190,6 @@ public:
     }
 
 private:
-    bool isFull() {
-        task<void> t;
-        return !pool.try_add(t, [] {
-        });
-    }
-
     void release() {
         std::lock_guard lock(mutex);
         {
@@ -177,21 +199,38 @@ private:
     }
 };
 
+const auto SHORT_TIME = std::chrono::milliseconds(250);
+
+template<class Rep, class Period>
+auto getFuture(const std::chrono::duration<Rep, Period>& durationIntoFuture) {
+    return std::chrono::steady_clock::now() + durationIntoFuture;
+}
+
+
 TEST(BoundedQueue, BlockTryAddVoid) {
     pool_builder builder;
     builder.set_target_parallelism(1);
     builder.set_extra_threads(0);
     builder.set_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::Block);
+    bool taskStarted = false;
     {
         auto pool = builder.build();
         FullQueue fq(pool);
 
         task<void> task;
-        EXPECT_FALSE(pool.try_add(task, []{}));
-        EXPECT_FALSE(pool.try_add(task, "name", [&]{ }));
-        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ (void)arg; }, 5));
+        EXPECT_FALSE(pool.try_add(task, [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ taskStarted = true; (void)arg; }, 5));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_for(task ,SHORT_TIME, "name", [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, "name", [&](int arg){ taskStarted = true; (void)arg; }, 5));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name", [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name",
+            [&](int arg){ taskStarted = true; (void)arg; }, 5));
     }
+    EXPECT_FALSE(taskStarted);
 }
 
 TEST(BoundedQueue, BlockTryAddNonVoid) {
@@ -200,15 +239,24 @@ TEST(BoundedQueue, BlockTryAddNonVoid) {
     builder.set_extra_threads(0);
     builder.set_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::Block);
+    bool taskStarted = false;
     {
         auto pool = builder.build();
         FullQueue fq(pool);
 
         task<int> task;
-        EXPECT_FALSE(pool.try_add(task, []{ return 123; }));
-        EXPECT_FALSE(pool.try_add(task, "name", [&]{ return 123; }));
-        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ return arg; }, 5));
+        EXPECT_FALSE(pool.try_add(task, [&]{taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ taskStarted = true; return arg; }, 5));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, [&]{taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, "name", [&]{ taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, "name", [&](int arg){ taskStarted = true; return arg; }, 5));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), [&]{taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name", [&]{ taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name",
+                [&](int arg){ taskStarted = true; return arg; }, 5));
     }
+    EXPECT_FALSE(taskStarted);
 }
 
 TEST(BoundedQueue, DropOldTryAddVoid) {
@@ -217,39 +265,25 @@ TEST(BoundedQueue, DropOldTryAddVoid) {
     builder.set_extra_threads(0);
     builder.set_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::DropOld);
-    bool task1Started = false;
-    bool task2Started = false;
-    bool task3Started = false;
+    bool taskStarted = false;
     {
-        std::mutex mutex;
-        std::condition_variable cv;
         auto pool = builder.build();
-        pool.add([&] {
-            {
-                std::lock_guard lock(mutex);
-                task1Started = true;
-            }
-            cv.notify_one();
-            sleepMs(1000);
-        });
-        {
-            std::unique_lock lock(mutex);
-            cv.wait(lock, [&] { return task1Started; });
-        }
-        pool.add([&] {
-            task2Started = true;
-        });
+        FullQueue fq(pool);
 
         task<void> task;
-        EXPECT_FALSE(pool.try_add(task, [&]{ task3Started = true; }));
-        EXPECT_FALSE(pool.try_add(task, "name", [&]{ task3Started = true; }));
-        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ task3Started = true; (void)arg; }, 5));
+        EXPECT_FALSE(pool.try_add(task, [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ taskStarted = true; (void)arg; }, 5));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_for(task ,SHORT_TIME, "name", [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, "name", [&](int arg){ taskStarted = true; (void)arg; }, 5));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name", [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name",
+            [&](int arg){ taskStarted = true; (void)arg; }, 5));
     }
-    EXPECT_TRUE(task1Started);
-    EXPECT_TRUE(task2Started);
-    EXPECT_FALSE(task3Started);
+    EXPECT_FALSE(taskStarted);
 }
-
 
 TEST(BoundedQueue, DropOldTryAddNonVoid) {
     pool_builder builder;
@@ -257,37 +291,24 @@ TEST(BoundedQueue, DropOldTryAddNonVoid) {
     builder.set_extra_threads(0);
     builder.set_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::DropOld);
-    bool task1Started = false;
-    bool task2Started = false;
-    bool task3Started = false;
+    bool taskStarted = false;
     {
-        std::mutex mutex;
-        std::condition_variable cv;
         auto pool = builder.build();
-        pool.add([&] {
-            {
-                std::lock_guard lock(mutex);
-                task1Started = true;
-            }
-            cv.notify_one();
-            sleepMs(1000);
-        });
-        {
-            std::unique_lock lock(mutex);
-            cv.wait(lock, [&] { return task1Started; });
-        }
-        pool.add([&] {
-            task2Started = true;
-        });
+        FullQueue fq(pool);
 
         task<int> task;
-        EXPECT_FALSE(pool.try_add(task, [&]{task3Started = true; return 123; }));
-        EXPECT_FALSE(pool.try_add(task, "name", [&]{ task3Started = true; return 123; }));
-        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ task3Started = true; return arg; }, 5));
+        EXPECT_FALSE(pool.try_add(task, [&]{taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ taskStarted = true; return arg; }, 5));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, [&]{taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, "name", [&]{ taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, "name", [&](int arg){ taskStarted = true; return arg; }, 5));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), [&]{taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name", [&]{ taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name",
+                [&](int arg){ taskStarted = true; return arg; }, 5));
     }
-    EXPECT_TRUE(task1Started);
-    EXPECT_TRUE(task2Started);
-    EXPECT_FALSE(task3Started);
+    EXPECT_FALSE(taskStarted);
 }
 
 TEST(BoundedQueue, DropNewTryAddVoid) {
@@ -296,37 +317,24 @@ TEST(BoundedQueue, DropNewTryAddVoid) {
     builder.set_extra_threads(0);
     builder.set_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::DropNew);
-    bool task1Started = false;
-    bool task2Started = false;
-    bool task3Started = false;
+    bool taskStarted = false;
     {
-        std::mutex mutex;
-        std::condition_variable cv;
         auto pool = builder.build();
-        pool.add([&] {
-            {
-                std::lock_guard lock(mutex);
-                task1Started = true;
-            }
-            cv.notify_one();
-            sleepMs(1000);
-        });
-        {
-            std::unique_lock lock(mutex);
-            cv.wait(lock, [&] { return task1Started; });
-        }
-        pool.add([&] {
-            task2Started = true;
-        });
+        FullQueue fq(pool);
 
         task<void> task;
-        EXPECT_FALSE(pool.try_add(task, [&]{ task3Started = true; }));
-        EXPECT_FALSE(pool.try_add(task, "name", [&]{ task3Started = true; }));
-        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){task3Started = true; (void)arg; }, 5));
+        EXPECT_FALSE(pool.try_add(task, [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ taskStarted = true; (void)arg; }, 5));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_for(task ,SHORT_TIME, "name", [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, "name", [&](int arg){ taskStarted = true; (void)arg; }, 5));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name", [&]{ taskStarted = true; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name",
+            [&](int arg){ taskStarted = true; (void)arg; }, 5));
     }
-    EXPECT_TRUE(task1Started);
-    EXPECT_TRUE(task2Started);
-    EXPECT_FALSE(task3Started);
+    EXPECT_FALSE(taskStarted);
 }
 
 TEST(BoundedQueue, DropNewTryAddNonVoid) {
@@ -335,35 +343,22 @@ TEST(BoundedQueue, DropNewTryAddNonVoid) {
     builder.set_extra_threads(0);
     builder.set_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::DropNew);
-    bool task1Started = false;
-    bool task2Started = false;
-    bool task3Started = false;
+    bool taskStarted = false;
     {
-        std::mutex mutex;
-        std::condition_variable cv;
-        auto pool = builder.build();
-        pool.add([&] {
-            {
-                std::lock_guard lock(mutex);
-                task1Started = true;
-            }
-            cv.notify_one();
-            sleepMs(1000);
-        });
-        {
-            std::unique_lock lock(mutex);
-            cv.wait(lock, [&] { return task1Started; });
-        }
-        pool.add([&] {
-            task2Started = true;
-        });
+auto pool = builder.build();
+        FullQueue fq(pool);
 
         task<int> task;
-        EXPECT_FALSE(pool.try_add(task, [&]{ task3Started = true; return 123; }));
-        EXPECT_FALSE(pool.try_add(task, "name", [&]{ task3Started = true; return 123; }));
-        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ task3Started = true; return arg; }, 5));
+        EXPECT_FALSE(pool.try_add(task, [&]{taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&]{ taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add(task, "name", [&](int arg){ taskStarted = true; return arg; }, 5));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, [&]{taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, "name", [&]{ taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_for(task, SHORT_TIME, "name", [&](int arg){ taskStarted = true; return arg; }, 5));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), [&]{taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name", [&]{ taskStarted = true; return 123; }));
+        EXPECT_FALSE(pool.try_add_until(task, getFuture(SHORT_TIME), "name",
+            [&](int arg){ taskStarted = true; return arg; }, 5));
     }
-    EXPECT_TRUE(task1Started);
-    EXPECT_TRUE(task2Started);
-    EXPECT_FALSE(task3Started);
+    EXPECT_FALSE(taskStarted);
 }

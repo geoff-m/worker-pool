@@ -470,6 +470,30 @@ namespace worker_pool {
         bool try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask, const std::string& name,
                      const TCallback& callback, TArgs... args);
 
+
+        template<class Rep, class Period, typename TCallback, typename... TArgs>
+        bool try_add_for(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
+                         const std::chrono::duration<Rep, Period>& timeout,
+                         const TCallback& callback, TArgs... args);
+
+        template<class Rep, class Period, typename TCallback, typename... TArgs>
+        bool try_add_for(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
+                         const std::chrono::duration<Rep, Period>& timeout,
+                         const std::string& name,
+                         const TCallback& callback, TArgs... args);
+
+        template<class Clock, class Duration, typename TCallback, typename... TArgs>
+        bool try_add_until(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
+                           const std::chrono::time_point<Clock, Duration>& timeout,
+                           const TCallback& callback, TArgs... args);
+
+        template<class Clock, class Duration, typename TCallback, typename... TArgs>
+        bool try_add_until(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
+                           const std::chrono::time_point<Clock, Duration>& timeout,
+                           const std::string& name,
+                           const TCallback& callback, TArgs... args);
+
+
         /**
          * Blocks until at least one thread is idle,
          * or until the pool begins to shut down.
@@ -481,26 +505,26 @@ namespace worker_pool {
          * Blocks until at least one thread is idle,
          * or until the pool begins to shut down,
          * or until the given timeout elapses.
-         * @param timeout_duration Time to wait before returning 0 if no threads are idle.
+         * @param timeout Time to wait before returning 0 if no threads are idle.
          * @return The number of idle threads in this pool.
          */
         template<class Rep, class Period>
-        unsigned int await_idle_thread_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return await_idle_thread_until(std::chrono::steady_clock::now() + timeout_duration);
+        unsigned int await_idle_thread_for(const std::chrono::duration<Rep, Period>& timeout) {
+            return await_idle_thread_until(std::chrono::steady_clock::now() + timeout);
         }
 
         /**
          * Blocks until at least one thread is idle,
          * or until the pool begins to shut down,
          * or until the given timeout is reached.
-         * @param timeout_time Time to await before returning 0 if no threads are idle.
+         * @param timeout Time to await before returning 0 if no threads are idle.
          * @return The number of idle threads in this pool.
          */
         template<class Clock, class Duration>
-        unsigned int await_idle_thread_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
+        unsigned int await_idle_thread_until(const std::chrono::time_point<Clock, Duration>& timeout) {
             std::unique_lock threadsLock(threadsMutex);
             unsigned int idleThreadCount = 0;
-            threadsCv.wait_until(threadsLock, timeout_time, [&] {
+            threadsCv.wait_until(threadsLock, timeout, [&] {
                 const auto it = static_cast<int>(targetParallelism) - readyThreads.load(std::memory_order::acquire);
                 if (it > 0 || stopping.load(std::memory_order::acquire)) {
                     idleThreadCount = it;
@@ -518,28 +542,28 @@ namespace worker_pool {
         void await_idle_pool();
 
         template<class Rep, class Period>
-        bool await_idle_pool_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return await_idle_pool_until(std::chrono::steady_clock::now() + timeout_duration);
+        bool await_idle_pool_for(const std::chrono::duration<Rep, Period>& timeout) {
+            return await_idle_pool_until(std::chrono::steady_clock::now() + timeout);
         }
 
         template<class Clock, class Duration>
-        bool await_idle_pool_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
+        bool await_idle_pool_until(const std::chrono::time_point<Clock, Duration>& timeout) {
             std::unique_lock threadsLock(threadsMutex);
-            return threadsCv.wait_until(threadsLock, timeout_time, [&] {
+            return threadsCv.wait_until(threadsLock, timeout, [&] {
                 return readyThreads.load(std::memory_order::acquire) == 0 && unstarted.empty();
             });
         }
 
     private:
         template<class Rep, class Period>
-        bool wait_for(std::shared_ptr<WorkItem> workItem, const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return wait_until(std::move(workItem), std::chrono::steady_clock::now() + timeout_duration);
+        bool wait_for(std::shared_ptr<WorkItem> workItem, const std::chrono::duration<Rep, Period>& timeout) {
+            return wait_until(std::move(workItem), std::chrono::steady_clock::now() + timeout);
         }
 
         template<class Clock, class Duration>
         // NOLINTNEXTLINE(performance-unnecessary-value-param)
         bool wait_until(std::shared_ptr<WorkItem> workItem,
-                        const std::chrono::time_point<Clock, Duration>& timeout_time) {
+                        const std::chrono::time_point<Clock, Duration>& timeout) {
             auto state = workItem->state.load(std::memory_order::acquire);
             log("Timed wait for task %s (task is %s)",
                 workItem->getName().c_str(), WorkItem::workItemStateToString(state));
@@ -551,7 +575,7 @@ namespace worker_pool {
                 --readyThreads;
                 threadsCv.notify_one();
             }
-            const auto status = workItem->future.wait_until(timeout_time);
+            const auto status = workItem->future.wait_until(timeout);
             if (executingWorkItem && threadOwningPool == this) {
                 ++readyThreads;
             }
@@ -575,21 +599,21 @@ namespace worker_pool {
 
         template<typename TaskIterator, class Rep, class Period>
         static bool naive_wait_all_for(TaskIterator begin, TaskIterator end,
-                                       const std::chrono::duration<Rep, Period>& timeout_duration) {
+                                       const std::chrono::duration<Rep, Period>& timeout) {
             if (begin == end)
                 return true;
             log("naive_wait_all_for(%s .. %s)", begin->get_name().c_str(), std::prev(end)->get_name().c_str());
-            return naive_wait_all_until(begin, end, std::chrono::steady_clock::now() + timeout_duration);
+            return naive_wait_all_until(begin, end, std::chrono::steady_clock::now() + timeout);
         }
 
         template<typename TaskIterator, class Clock, class Duration>
         static bool naive_wait_all_until(TaskIterator begin, TaskIterator end,
-                                         const std::chrono::time_point<Clock, Duration>& timeout_time) {
+                                         const std::chrono::time_point<Clock, Duration>& timeout) {
             if (begin == end)
                 return true;
             log("naive_wait_all_until(%s .. %s)", begin->get_name().c_str(), std::prev(end)->get_name().c_str());
             for (auto it = begin; it != end; ++it) {
-                if (!it->wait_until(timeout_time))
+                if (!it->wait_until(timeout))
                     return false;
             }
             return true;
@@ -598,6 +622,32 @@ namespace worker_pool {
         [[nodiscard]] bool unsafeQueueIsFull() const {
             return maxUnstarted > 0 && unstarted.size() >= maxUnstarted;
         }
+
+        template<class Rep, class Period>
+        [[nodiscard]] bool await_queue_not_full(std::unique_lock<std::mutex>& lock,
+                                                const std::chrono::duration<Rep, Period>& timeout) {
+            if (maxUnstarted == 0)
+                return true;
+            return threadsCv.wait_for(lock, timeout, [&] { return unstarted.size() < maxUnstarted; });
+        }
+
+        template<class Clock, class Duration>
+        [[nodiscard]] bool await_queue_not_full(std::unique_lock<std::mutex>& lock,
+                                                const std::chrono::time_point<Clock, Duration>& timeout) {
+            if (maxUnstarted == 0)
+                return true;
+            return threadsCv.wait_until(lock, timeout, [&] { return unstarted.size() < maxUnstarted; });
+        }
+
+        template<bool blocking, typename TCallback, typename... TArgs>
+        auto do_add(std::unique_lock<std::mutex>& lock, const std::string& name, const TCallback& callback,
+                    TArgs... args) -> task<std::invoke_result_t<TCallback, TArgs...>>;
+
+        template<typename Timeout, typename TCallback, typename... TArgs>
+        bool timed_try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
+                           const Timeout& timeout,
+                           const std::string& name,
+                           const TCallback& callback, TArgs... args);
 
     public:
         /**
@@ -616,13 +666,13 @@ namespace worker_pool {
          * @tparam TResult Type of the result of each task.
          * @param tasks Array of tasks.
          * @param count Number of tasks.
-         * @param timeout_duration The maximum amount of time to wait.
+         * @param timeout The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
         template<typename TResult, class Rep, class Period>
         static bool wait_all_for(task<TResult>* tasks, size_t count,
-                                 const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return wait_all_for(tasks, tasks + count, timeout_duration);
+                                 const std::chrono::duration<Rep, Period>& timeout) {
+            return wait_all_for(tasks, tasks + count, timeout);
         }
 
         /**
@@ -630,13 +680,13 @@ namespace worker_pool {
          * @tparam TResult Type of the result of each task.
          * @param tasks Array of tasks.
          * @param count Number of tasks.
-         * @param timeout_time The point at which to stop waiting.
+         * @param timeout The point at which to stop waiting.
          * @return False if and only if timeout occurred.
          */
         template<typename TResult, class Clock, class Duration>
         static bool wait_all_until(task<TResult>* tasks, size_t count,
-                                   const std::chrono::time_point<Clock, Duration>& timeout_time) {
-            return wait_all_until(tasks, tasks + count, timeout_time);
+                                   const std::chrono::time_point<Clock, Duration>& timeout) {
+            return wait_all_until(tasks, tasks + count, timeout);
         }
 
         /**
@@ -653,13 +703,13 @@ namespace worker_pool {
          * @tparam TaskIterator Type of iterator for task to be awaited.
          * @param begin Iterator pointing to the first task to be awaited.
          * @param end Iterator pointing one past the last task to be awaited.
-         * @param timeout_duration The maximum amount of time to wait.
+         * @param timeout The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
         template<typename TaskIterator, class Rep, class Period>
         static bool wait_all_for(TaskIterator begin, TaskIterator end,
-                                 const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return naive_wait_all_for(begin, end, timeout_duration);
+                                 const std::chrono::duration<Rep, Period>& timeout) {
+            return naive_wait_all_for(begin, end, timeout);
         }
 
         /**
@@ -667,13 +717,13 @@ namespace worker_pool {
          * @tparam TaskIterator Type of iterator for task to be awaited.
          * @param begin Iterator pointing to the first task to be awaited.
          * @param end Iterator pointing one past the last task to be awaited.
-         * @param timeout_time The point at which to stop waiting.
+         * @param timeout The point at which to stop waiting.
          * @return False if and only if timeout occurred.
          */
         template<typename TaskIterator, class Clock, class Duration>
         static bool wait_all_for(TaskIterator begin, TaskIterator end,
-                                 const std::chrono::time_point<Clock, Duration>& timeout_time) {
-            return naive_wait_all_until(begin, end, timeout_time);
+                                 const std::chrono::time_point<Clock, Duration>& timeout) {
+            return naive_wait_all_until(begin, end, timeout);
         }
 
         /**
@@ -690,28 +740,31 @@ namespace worker_pool {
          * Blocks until all of the given tasks are finished or a timeout occurs.
          * @tparam IterableTasks Type of iterable thing for tasks to be awaited.
          * @param tasks Iterable thing for tasks to be awaited.
-         * @param timeout_duration The maximum amount of time to wait.
+         * @param timeout The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
         template<typename IterableTasks, class Rep, class Period>
-        static bool wait_all_for(IterableTasks tasks, const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return naive_wait_all_for(tasks.begin(), tasks.end(), timeout_duration);
+        static bool wait_all_for(IterableTasks tasks, const std::chrono::duration<Rep, Period>& timeout) {
+            return naive_wait_all_for(tasks.begin(), tasks.end(), timeout);
         }
 
         /**
          * Blocks until all of the given tasks are finished or a timeout occurs.
          * @tparam IterableTasks Type of iterable thing for tasks to be awaited.
          * @param tasks Iterable thing for tasks to be awaited.
-         * @param timeout_time The point at which to stop waiting.
+         * @param timeout The point at which to stop waiting.
          * @return False if and only if timeout occurred.
          */
         template<typename IterableTasks, class Clock, class Duration>
-        static bool wait_all_until(IterableTasks tasks, const std::chrono::time_point<Clock, Duration>& timeout_time) {
-            return naive_wait_all_until(tasks.begin(), tasks.end(), timeout_time);
+        static bool wait_all_until(IterableTasks tasks, const std::chrono::time_point<Clock, Duration>& timeout) {
+            return naive_wait_all_until(tasks.begin(), tasks.end(), timeout);
         }
 
         [[nodiscard]] unsigned int get_target_parallelism() const;
+
         [[nodiscard]] size_t get_queue_size() const;
+
+        [[nodiscard]] FullQueuePolicy get_full_queue_policy() const;
     };
 
     class pool_builder {
@@ -814,22 +867,22 @@ namespace worker_pool {
 
         /**
          * Blocks until this task is complete, or until the given timeout elapses.
-         * @param timeout_duration The maximum amount of time to wait.
+         * @param timeout The maximum amount of time to wait.
          * @return False if and only if timeout occurred.
          */
         template<class Rep, class Period>
-        bool wait_for(const std::chrono::duration<Rep, Period>& timeout_duration) {
-            return wi->getOwningPool().wait_for(wi, timeout_duration);
+        bool wait_for(const std::chrono::duration<Rep, Period>& timeout) {
+            return wi->getOwningPool().wait_for(wi, timeout);
         }
 
         /**
          * Blocks until this task is complete, or until the given timeout is reached.
-         * @param timeout_time The point at which to stop waiting.
+         * @param timeout The point at which to stop waiting.
          * @return False if and only if timeout occurred.
          */
         template<class Clock, class Duration>
-        bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time) {
-            return wi->getOwningPool().wait_until(wi, timeout_time);
+        bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout) {
+            return wi->getOwningPool().wait_until(wi, timeout);
         }
 
         /**
@@ -961,11 +1014,76 @@ namespace worker_pool {
     template<typename TCallback, typename... TArgs>
     auto pool::add(const std::string& name, const TCallback& callback,
                    TArgs... args) -> task<std::invoke_result_t<TCallback, TArgs...>> {
+        std::unique_lock lock(threadsMutex);
+        throwIfStopped();
+        return do_add<true>(lock, name, callback, args...);
+    }
+
+    template<typename TCallback, typename... TArgs>
+    bool pool::try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
+                       const TCallback& callback, TArgs... args) {
+        return try_add(newTask, generateTaskName(), callback, args...);
+    }
+
+    template<typename TCallback, typename... TArgs>
+    bool pool::try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask, const std::string& name,
+                       const TCallback& callback, TArgs... args) {
+        std::unique_lock lock(threadsMutex);
+        throwIfStopped();
+        if (unsafeQueueIsFull())
+            return false;
+        newTask = do_add<false>(lock, name, callback, args...);
+        return true;
+    }
+
+    template<class Rep, class Period, typename TCallback, typename... TArgs>
+    bool pool::try_add_for(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
+                           const std::chrono::duration<Rep, Period>& timeout,
+                           const TCallback& callback,
+                           TArgs... args) {
+        return try_add_for(newTask, timeout, generateTaskName(), callback, args...);
+    }
+
+    template<class Rep, class Period, typename TCallback, typename... TArgs>
+    bool pool::try_add_for(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
+                           const std::chrono::duration<Rep, Period>& timeout, const std::string& name,
+                           const TCallback& callback,
+                           TArgs... args) {
+        return timed_try_add(newTask, timeout, name, callback, args...);
+    }
+
+    template<class Clock, class Duration, typename TCallback, typename... TArgs>
+    bool pool::try_add_until(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
+                             const std::chrono::time_point<Clock, Duration>& timeout, const TCallback& callback,
+                             TArgs... args) {
+        return timed_try_add(newTask, timeout, generateTaskName(), callback, args...);
+    }
+
+    template<class Clock, class Duration, typename TCallback, typename... TArgs>
+    bool pool::try_add_until(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
+                             const std::chrono::time_point<Clock, Duration>& timeout, const std::string& name,
+                             const TCallback& callback,
+                             TArgs... args) {
+        return timed_try_add(newTask, timeout, name, callback, args...);
+    }
+
+    template<typename Timeout, typename TCallback, typename... TArgs>
+    bool pool::timed_try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask, const Timeout& timeout,
+                             const std::string& name, const TCallback& callback, TArgs... args) {
+        std::unique_lock lock(threadsMutex);
+        throwIfStopped();
+        if (!await_queue_not_full(lock, timeout))
+            return false;
+        newTask = do_add<false>(lock, name, callback, args...);
+        return true;
+    }
+
+    template<bool blocking, typename TCallback, typename... TArgs>
+    auto pool::do_add(std::unique_lock<std::mutex>& lock, const std::string& name, const TCallback& callback,
+                      TArgs... args) -> task<std::invoke_result_t<TCallback, TArgs...>> {
         using TResult = std::invoke_result_t<TCallback, TArgs...>;
         static_assert(std::is_void_v<TResult> || std::is_copy_constructible_v<TResult>,
                       "Task result must be copy constructible");
-        std::unique_lock lock(threadsMutex);
-        throwIfStopped();
         auto wi = std::make_shared<WorkItem>(*this, lastItemId++, name);
         auto* pwi = wi.get(); // Avoid reference cycle
         wi->setCallback(std::packaged_task<std::any()>([=] {
@@ -986,72 +1104,28 @@ namespace worker_pool {
                 throw;
             }
         }));
-
-        if (unsafeQueueIsFull()) {
-            switch (fullQueuePolicy) {
-                default:
-                case FullQueuePolicy::Block:
-                    threadsCv.wait(lock, [&] {
-                        return unstarted.size() < maxUnstarted;
-                    });
-                    break;
-                case FullQueuePolicy::DropOld:
-                    unstarted.pop_front();
-                    break;
-                case FullQueuePolicy::DropNew:
-                    wi->trySetCanceled();
-                    return task<TResult>(wi);
+        if constexpr (blocking) {
+            if (unsafeQueueIsFull()) {
+                switch (fullQueuePolicy) {
+                    default:
+                    case FullQueuePolicy::Block:
+                        threadsCv.wait(lock, [&] {
+                            return unstarted.size() < maxUnstarted;
+                        });
+                        break;
+                    case FullQueuePolicy::DropOld:
+                        unstarted.pop_front();
+                        break;
+                    case FullQueuePolicy::DropNew:
+                        wi->trySetCanceled();
+                        return task<TResult>(wi);
+                }
             }
         }
         const auto it = unstarted.emplace(unstarted.end(), wi);
         wi->enableDeletion(it);
         threadsCv.notify_one();
         return task<TResult>(wi);
-    }
-
-    template<typename TCallback, typename... TArgs>
-    bool pool::try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
-                       const TCallback& callback, TArgs... args) {
-        return try_add(newTask, generateTaskName(), callback, args...);
-    }
-
-    template<typename TCallback, typename... TArgs>
-    bool pool::try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask, const std::string& name,
-                       const TCallback& callback, TArgs... args) {
-        std::unique_lock lock(threadsMutex);
-        throwIfStopped();
-        if (unsafeQueueIsFull()) {
-            return false;
-        }
-        using TResult = std::invoke_result_t<TCallback, TArgs...>;
-        static_assert(std::is_void_v<TResult> || std::is_copy_constructible_v<TResult>,
-              "Task result must be copy constructible");
-        auto wi = std::make_shared<WorkItem>(*this,
-                                             lastItemId++, name);
-        auto* pwi = wi.get(); // Avoid reference cycle
-        wi->setCallback(std::packaged_task<std::any()>([=] {
-            pwi->throwIfCanceled();
-            try {
-                if constexpr (std::is_void_v<TResult>) {
-                    std::invoke(callback, args...);
-                    pwi->state.store(TaskState::Done, std::memory_order::release);
-                    return std::any(0); // dummy value
-                } else {
-                    TResult result = std::invoke(callback, args...);
-                    pwi->state.store(TaskState::Done, std::memory_order::release);
-                    return std::any(result);
-                }
-            } catch (...) {
-                // Ensure the WorkItem state gets marked as Done even if user code throws.
-                pwi->state.store(TaskState::Done, std::memory_order::release);
-                throw;
-            }
-        }));
-        const auto it = unstarted.emplace(unstarted.end(), wi);
-        wi->enableDeletion(it);
-        threadsCv.notify_one();
-        newTask = task<TResult>(wi);
-        return true;
     }
 
     template<typename TaskIterator>

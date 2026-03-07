@@ -143,6 +143,10 @@ namespace worker_pool {
         return maxUnstarted;
     }
 
+    FullQueuePolicy pool::get_full_queue_policy() const {
+        return fullQueuePolicy;
+    }
+
     void pool::throwIfStopped() const {
         if (stopping.load(std::memory_order::acquire))
             throw std::runtime_error("Cannot add to stopped thread WorkerPool");
