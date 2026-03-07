@@ -88,13 +88,13 @@ namespace worker_pool {
             = [](const std::function<void()>& callback) { return std::thread(callback); };
 
     pool::~pool() {
-        shutDown(false);
+        shut_down(false);
         for (auto& thread : threads) {
             thread.join();
         }
     }
 
-    void pool::shutDown(bool cancelUnstarted) {
+    void pool::shut_down(bool cancelUnstarted) {
         bool expected = false;
         if (!stopping.compare_exchange_strong(expected, true))
             return;

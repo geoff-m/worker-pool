@@ -415,7 +415,7 @@ namespace worker_pool {
          * A shut down pool cannot be restarted.
          * @param cancelUnstarted Whether unstarted pool tasks should be canceled.
          */
-        void shutDown(bool cancelUnstarted = false);
+        void shut_down(bool cancelUnstarted = false);
 
         [[nodiscard]] std::string get_name() const;
 

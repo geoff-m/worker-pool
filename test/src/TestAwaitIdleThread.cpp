@@ -122,7 +122,7 @@ TEST(AwaitIdleThread, ReturnsAtShutDown) {
     constexpr auto TASK_TIME = std::chrono::milliseconds(2000);
     pool pool(1);
     auto task = pool.add([&] { std::this_thread::sleep_for(TASK_TIME); });
-    pool.shutDown();
+    pool.shut_down();
     const auto waitStartTime = std::chrono::steady_clock::now();
     while (true) {
         if (pool.await_idle_thread() == 0)
@@ -137,7 +137,7 @@ TEST(AwaitIdleThread, ReturnsAtShutDownFor) {
     constexpr auto TASK_TIME = std::chrono::milliseconds(2000);
     pool pool(1);
     auto task = pool.add([&] { std::this_thread::sleep_for(TASK_TIME); });
-    pool.shutDown();
+    pool.shut_down();
     const auto waitStartTime = std::chrono::steady_clock::now();
     while (true) {
         if (pool.await_idle_thread_for(std::chrono::milliseconds(10)) == 0)

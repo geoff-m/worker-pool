@@ -168,21 +168,21 @@ However, WorkerPool does offer some ways to stop work.
 
 #### Shutting down a pool
 
-Calling `shutDown` on a pool prevents new work from being added to it.
-`shutDown(false)` is called automatically in the pool destructor.
+Calling `shut_down` on a pool prevents new work from being added to it.
+`shut_down(false)` is called automatically in the pool destructor.
 
 ```c++
 pool p;
 p.add([]{});
-p.shutDown();
+p.shut_down();
 
 // This will throw an exception because the pool has been shut down.
 p.add([]{}); 
 ```
 
 By default, a pool eventually does all the work ever added to it,
-even after `shutDown` is called.
-By passing `true` to `shutDown`,
+even after `shut_down` is called.
+By passing `true` to `shut_down`,
 you can tell the pool to cancel all unstarted work.
 
 ```c++
@@ -193,7 +193,7 @@ auto t1 = pool.add([]{ sleep(2); });
 auto t2 = pool.add([]{ sleep(2); });
 auto t3 = pool.add([]{ sleep(2); });
 sleep(1); // One of the three tasks will likely begin.
-pool.shutDown(true); // This will cancel the other two unstarted tasks.
+pool.shut_down(true); // This will cancel the other two unstarted tasks.
 ```
 
 #### Canceling a specific task
