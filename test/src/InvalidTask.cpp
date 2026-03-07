@@ -69,3 +69,12 @@ TEST(InvalidTask, Overwrite) {
     v.get();
     EXPECT_EQ(123, i.get());
 }
+
+TEST(InvalidTask, IfInit) {
+    pool p(1);
+    if (task<int> task; p.try_add(task, [] { return 123; })) {
+        EXPECT_EQ(123, task.get());
+    } else {
+        ADD_FAILURE() << "Expected try_add to succeed";
+    }
+}

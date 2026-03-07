@@ -287,18 +287,17 @@ If you want to add a task only if the queue is not full, call `try_add`.
 If the queue is full when you call `try_add`, the full queue policy does not apply.
 Instead, the method immediately returns false and does not create a task.
 ```c++
-task<int> maybeTask; // For now, an invalid task.
-if (pool.try_add(maybeTask, [] { return 123; })) {
+if (task<int> task; pool.try_add(task, [] { return 123; })) {
     // Successfully added task to pool (queue was not full).
     
-    /* ... */ = maybeTask.get(); // returns 123
+    /* ... */ = task.get(); // Returns 123
 } else {
     // Did not successfully add task to pool (queue was full).
-    
-    // Error: not a valid task
-    /* ... */ = maybeTask.get();
 }
 ```
+Incidentally, situations like the above are one of the few times it's necessary to
+create your own task objects. Such objects are invalid except for the purpose
+of being a placeholder that can be overwritten as may happen here with `try_add`.
 
 #### Waiting for task completion without a task object
 There are ways to avoid having to store a large number of tasks in order to wait for them.
