@@ -856,12 +856,18 @@ namespace worker_pool {
             : wi(wrapped) {
         }
 
+        void throwIfNull() const {
+            if (wi == nullptr)
+                throw std::runtime_error("Task is invalid");
+        }
+
     public:
         /**
          * Blocks until this task is complete.
          * @return The result returned from this task.
          */
         void wait() {
+            throwIfNull();
             wi->getOwningPool().wait(wi);
         }
 
@@ -872,6 +878,7 @@ namespace worker_pool {
          */
         template<class Rep, class Period>
         bool wait_for(const std::chrono::duration<Rep, Period>& timeout) {
+            throwIfNull();
             return wi->getOwningPool().wait_for(wi, timeout);
         }
 
@@ -882,6 +889,7 @@ namespace worker_pool {
          */
         template<class Clock, class Duration>
         bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout) {
+            throwIfNull();
             return wi->getOwningPool().wait_until(wi, timeout);
         }
 
@@ -890,6 +898,7 @@ namespace worker_pool {
          * @return The name of this task.
          */
         [[nodiscard]] std::string get_name() const {
+            throwIfNull();
             return wi->getName();
         }
 
@@ -899,6 +908,7 @@ namespace worker_pool {
          * @return True if this task transitioned from unstarted to canceled.
          */
         bool try_cancel() {
+            throwIfNull();
             auto& pool = wi->getOwningPool();
             std::lock_guard lock(pool.threadsMutex);
             if (!wi->trySetCanceled())
@@ -912,6 +922,7 @@ namespace worker_pool {
          * @return The state of this task.
          */
         [[nodiscard]] TaskState get_state() const {
+            throwIfNull();
             return wi->getState();
         }
 
@@ -962,7 +973,7 @@ namespace worker_pool {
 
     public:
         /**
-         * Creates an invalid task. Only operator= is legal on such a task.
+         * Creates an invalid task.
          */
         task() : task_base(nullptr) {
         }
@@ -991,7 +1002,7 @@ namespace worker_pool {
 
     public:
         /**
-         * Creates an invalid task. Only operator= is legal on such a task.
+         * Creates an invalid task.
          */
         task() : task_base(nullptr) {
         }

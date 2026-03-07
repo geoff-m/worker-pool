@@ -287,16 +287,16 @@ If you want to add a task only if the queue is not full, call `try_add`.
 If the queue is full when you call `try_add`, the full queue policy does not apply.
 Instead, the method immediately returns false and does not create a task.
 ```c++
-task<int> maybeTask;
-if (pool.try_add([] { return 123; })) {
+task<int> maybeTask; // For now, an invalid task.
+if (pool.try_add(maybeTask, [] { return 123; })) {
     // Successfully added task to pool (queue was not full).
     
     /* ... */ = maybeTask.get(); // returns 123
 } else {
     // Did not successfully add task to pool (queue was full).
     
-    // Do not do this:
-    /* ... */ =  maybeTask.get(); // undefined behavior
+    // Error: not a valid task
+    /* ... */ = maybeTask.get();
 }
 ```
 

@@ -34,6 +34,7 @@ add_executable(test-worker-pool
         src/TestAwaitIdlePool.cpp
         src/BoundedQueue.cpp
         src/TestPoolBuilder.cpp
+        src/InvalidTask.cpp
 )
 
 target_include_directories(test-worker-pool PRIVATE src/include)
