@@ -66,10 +66,10 @@ constexpr auto Y = 5;
 task sumTask = pool.add([X, Y]{ return X + Y; });
 
 // Using extra arguments
-task sumTask = pool.add([](int x, int y) { return x + y; }, X, Y);
+task sumTask = pool.add([](int left, int right) { return left + right; }, X, Y);
 
 // Using named callback function
-static void add(int x, int y) { return x + y; }
+void add(int left, int right) { return left + right; }
 task sumTask = pool.add(add, X, Y);
 ```
 
@@ -105,7 +105,7 @@ Further discussion of the task waiting features can be found
 - `wait_all_for`
 - `wait_all_until`
 
-All of these return a `bool`:
+All of these return a Boolean value:
 
 - `true` indicates the awaited operation(s) finished
 - `false` indicates the timeout elapsed

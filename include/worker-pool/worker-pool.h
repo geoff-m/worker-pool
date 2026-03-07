@@ -434,7 +434,7 @@ namespace worker_pool {
          * Adds a callback to the pool.
          * @tparam TCallback Type of the callback function.
          * @tparam TArgs Types of the arguments to the callback.
-         * @param name Name of the task
+         * @param name The name of the task.
          * @param callback The function that will perform the work.
          * @param args The arguments, if any, to the callback function.
          * @return A task representing the work associated with this call.
@@ -447,7 +447,7 @@ namespace worker_pool {
          * If the pool's queue is not full, adds a callback to the pool.
          * @tparam TCallback Type of the callback function.
          * @tparam TArgs Types of the arguments to the callback.
-         * @param newTask The newly created task, if this function returned true
+         * @param newTask The newly created task, if this function returned true.
          * @param callback The function that will perform the work.
          * @param args The arguments, if any, to the callback function.
          * @return A task representing the work associated with this call.
@@ -460,8 +460,8 @@ namespace worker_pool {
          * If the pool's queue is not full, adds a callback to the pool.
          * @tparam TCallback Type of the callback function.
          * @tparam TArgs Types of the arguments to the callback.
-         * @param newTask The newly created task, if this function returned true
-         * @param name The name of the task
+         * @param newTask The newly created task, if this function returned true.
+         * @param name The name of the task.
          * @param callback The function that will perform the work.
          * @param args The arguments, if any, to the callback function.
          * @return A task representing the work associated with this call.
@@ -470,23 +470,65 @@ namespace worker_pool {
         bool try_add(task<std::invoke_result_t<TCallback, TArgs...>>& newTask, const std::string& name,
                      const TCallback& callback, TArgs... args);
 
-
+        /**
+         * If the pool's queue is not full, adds a callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
+         * @param newTask The newly created task, if this function returned true.
+         * @param timeout The time to wait for the queue to be not full.
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return True if the task was created and enqueued, otherwise false.
+         */
         template<class Rep, class Period, typename TCallback, typename... TArgs>
         bool try_add_for(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
                          const std::chrono::duration<Rep, Period>& timeout,
                          const TCallback& callback, TArgs... args);
 
+        /**
+         * If the pool's queue is not full, adds a callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
+         * @param newTask The newly created task, if this function returned true.
+         * @param timeout The time to wait for the queue to be not full.
+         * @param name The name of the task.
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return True if the task was created and enqueued, otherwise false.
+         */
         template<class Rep, class Period, typename TCallback, typename... TArgs>
         bool try_add_for(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
                          const std::chrono::duration<Rep, Period>& timeout,
                          const std::string& name,
                          const TCallback& callback, TArgs... args);
 
+
+        /**
+         * If the pool's queue is not full, adds a callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
+         * @param newTask The newly created task, if this function returned true.
+         * @param timeout The deadline to await for the queue to be not full.
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return True if the task was created and enqueued, otherwise false.
+         */
         template<class Clock, class Duration, typename TCallback, typename... TArgs>
         bool try_add_until(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
                            const std::chrono::time_point<Clock, Duration>& timeout,
                            const TCallback& callback, TArgs... args);
 
+        /**
+         * If the pool's queue is not full, adds a callback to the pool.
+         * @tparam TCallback Type of the callback function.
+         * @tparam TArgs Types of the arguments to the callback.
+         * @param newTask The newly created task, if this function returned true.
+         * @param name The name of the task.
+         * @param timeout The deadline to await for the queue to be not full.
+         * @param callback The function that will perform the work.
+         * @param args The arguments, if any, to the callback function.
+         * @return True if the task was created and enqueued, otherwise false.
+         */
         template<class Clock, class Duration, typename TCallback, typename... TArgs>
         bool try_add_until(task<std::invoke_result_t<TCallback, TArgs...>>& newTask,
                            const std::chrono::time_point<Clock, Duration>& timeout,
@@ -541,11 +583,25 @@ namespace worker_pool {
          */
         void await_idle_pool();
 
+        /**
+         * Blocks until the pool has no current or pending work,
+         * or until the pool begins to shut down,
+         * or until the given timeout elapses
+         * @param timeout The time to wait.
+         * @return True if the pool is idle, otherwise false.
+         */
         template<class Rep, class Period>
         bool await_idle_pool_for(const std::chrono::duration<Rep, Period>& timeout) {
             return await_idle_pool_until(std::chrono::steady_clock::now() + timeout);
         }
 
+        /**
+         * Blocks until the pool has no current or pending work,
+         * or until the pool begins to shut down,
+         * or until the given timeout elapses
+         * @param timeout The deadline to await.
+         * @return True if the pool is idle, otherwise false.
+         */
         template<class Clock, class Duration>
         bool await_idle_pool_until(const std::chrono::time_point<Clock, Duration>& timeout) {
             std::unique_lock threadsLock(threadsMutex);
