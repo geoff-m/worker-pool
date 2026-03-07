@@ -176,8 +176,6 @@ public:
                 fflush(stdout);
             }));
         }
-        printf("FullQueue done adding tasks\n");
-
         state = State::FULL;
         printf("FullQueue believes queue to be full\n");
     }
