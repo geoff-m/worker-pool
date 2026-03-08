@@ -42,7 +42,10 @@ TEST(TimedWait, VoidNoTimeout) {
 TEST(TimedWait, IntTimeoutFor) {
     pool pool(1);
     const auto testStart = steady_clock::now();
-    auto task = pool.add([] { sleepMs(1000); return 1;});
+    auto task = pool.add([] {
+        sleepMs(1000);
+        return 1;
+    });
     EXPECT_FALSE(task.wait_for(milliseconds(500)));
     const auto testEnd = steady_clock::now();
     const auto testDuration = testEnd - testStart;
@@ -52,7 +55,10 @@ TEST(TimedWait, IntTimeoutFor) {
 TEST(TimedWait, IntTimeoutUntil) {
     pool pool(1);
     const auto testStart = steady_clock::now();
-    auto task = pool.add([] { sleepMs(1000); return 1;});
+    auto task = pool.add([] {
+        sleepMs(1000);
+        return 1;
+    });
     EXPECT_FALSE(task.wait_until(nowPlus(milliseconds(500))));
     const auto testEnd = steady_clock::now();
     const auto testDuration = testEnd - testStart;
@@ -63,7 +69,10 @@ TEST(TimedWait, IntTimeoutUntil) {
 TEST(TimedWait, IntNoTimeout) {
     pool pool(1);
     const auto testStart = steady_clock::now();
-    auto task = pool.add([] { sleepMs(1000); return 1; });
+    auto task = pool.add([] {
+        sleepMs(1000);
+        return 1;
+    });
     EXPECT_TRUE(task.wait_for(seconds(10)));
     const auto testEnd = steady_clock::now();
     const auto testDuration = testEnd - testStart;
@@ -107,4 +116,37 @@ TEST(TimedWait, WaitAllNoTimeout) {
     const auto testEnd = steady_clock::now();
     const auto testDuration = testEnd - testStart;
     EXPECT_LT(testDuration, seconds(2));
+}
+
+TEST(TimedWait, TimeoutForDone) {
+    pool pool(1);
+    auto task = pool.add([] {
+    });
+    task.wait();
+    EXPECT_TRUE(task.wait_for(milliseconds(500)));
+}
+
+TEST(TimedWait, TimeoutUntilDone) {
+    pool pool(1);
+    auto task = pool.add([] {
+    });
+    task.wait();
+    EXPECT_TRUE(task.wait_until(steady_clock::now()));
+}
+
+TEST(TimedWait, NestedWait) {
+    pool pool(2);
+    auto outer = pool.add([&] {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool done = false;
+        auto inner = pool.add([&] {
+            std::unique_lock lock(mutex);
+            cv.wait(lock, [&] { return done; });
+        });
+        inner.wait_for(seconds(1));
+        done = true;
+        cv.notify_one();
+    });
+    outer.wait();
 }

@@ -35,6 +35,8 @@ add_executable(test-worker-pool
         src/BoundedQueue.cpp
         src/TestPoolBuilder.cpp
         src/InvalidTask.cpp
+        src/include/FullPool.h
+        src/utility/FullPool.cpp
 )
 
 target_include_directories(test-worker-pool PRIVATE src/include)

@@ -1,18 +1,17 @@
 #pragma once
 #include <algorithm>
 #include <any>
+#include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <future>
-#include <mutex>
-#include <condition_variable>
-#include <thread>
-#include <concepts>
-#include <memory>
-#include <atomic>
-#include <vector>
 #include <list>
+#include <memory>
+#include <mutex>
 #include <optional>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #ifdef WORKER_POOL_LOGGING
 #include <cstdarg>

@@ -1,5 +1,7 @@
 #include "TestUtils.h"
+#include "FullPool.h"
 #include "worker-pool/worker-pool.h"
+
 using namespace worker_pool;
 
 TEST(Cancel, CancelNonvoidAtShutdown) {
@@ -306,4 +308,39 @@ TEST(Cancel, CancelVoidDuringWaitAll) {
         EXPECT_THROW(t2.get(), canceled_exception);
     }
     EXPECT_EQ(1, tasksDone);
+}
+
+TEST(Cancel, CancelAlreadyCanceled) {
+    pool pool(1);
+    {
+        FullPool fq(pool, false);
+        auto t = pool.add("t1", [] {
+        });
+        EXPECT_TRUE(t.try_cancel());
+        EXPECT_FALSE(t.try_cancel());
+    }
+}
+
+TEST(Cancel, CancelAlreadyDone) {
+    pool pool(1);
+    auto t = pool.add("t1", [] {
+    });
+    t.wait();
+    EXPECT_FALSE(t.try_cancel());
+}
+
+TEST(Cancel, CancelExecuting) {
+    pool pool(1);
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool done = false;
+    auto t = pool.add("t1", [&] {
+        std::unique_lock lock(mutex);
+        cv.wait(lock, [&] { return done; });
+    });
+    while (!t.is_executing())
+        std::this_thread::yield();
+    EXPECT_FALSE(t.try_cancel());
+    done = true;
+    cv.notify_one();
 }
