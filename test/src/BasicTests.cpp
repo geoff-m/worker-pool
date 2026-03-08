@@ -102,6 +102,27 @@ TEST(BasicTests, AddAfterShutdown) {
     EXPECT_ANY_THROW(pool.add([]{}););
 }
 
+TEST(BasicTests, IsShutDownNullary) {
+    pool pool(1);
+    EXPECT_FALSE(pool.is_shut_down());
+    pool.shut_down();
+    EXPECT_TRUE(pool.is_shut_down());
+}
+
+TEST(BasicTests, IsShutDownTrue) {
+    pool pool(1);
+    EXPECT_FALSE(pool.is_shut_down());
+    pool.shut_down(true);
+    EXPECT_TRUE(pool.is_shut_down());
+}
+
+TEST(BasicTests, IsShutDownFalse) {
+    pool pool(1);
+    EXPECT_FALSE(pool.is_shut_down());
+    pool.shut_down(false);
+    EXPECT_TRUE(pool.is_shut_down());
+}
+
 TEST(StressTests, Parallelism) {
     // This test tries to wait for WAIT_SECONDS seconds using threadCount threads.
     // We assert that this takes about WAIT_SECONDS in total.
