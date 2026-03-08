@@ -1,5 +1,6 @@
 #include "TestUtils.h"
 #include "worker-pool/worker-pool.h"
+#include "FullPool.h"
 #include <chrono>
 #include <cstdio>
 
@@ -10,6 +11,25 @@ TEST(BoundedQueue, Construct) {
     builder.set_target_parallelism(1);
     builder.set_queue_size(1);
     auto pool = builder.build();
+}
+
+void expectSetPolicyViaBuilder(FullQueuePolicy policy) {
+    pool_builder builder;
+    builder.set_full_queue_policy(policy);
+    auto pool = builder.build();
+    EXPECT_EQ(policy, pool.get_full_queue_policy());
+}
+
+TEST(BoundedQueue, SetPolicyBlock) {
+ expectSetPolicyViaBuilder(FullQueuePolicy::Block);
+}
+
+TEST(BoundedQueue, SetPolicyDropOld) {
+    expectSetPolicyViaBuilder(FullQueuePolicy::DropOld);
+}
+
+TEST(BoundedQueue, SetPolicyDropNew) {
+    expectSetPolicyViaBuilder(FullQueuePolicy::DropNew);
 }
 
 TEST(BoundedQueue, Block) {
@@ -127,74 +147,6 @@ TEST(BoundedQueue, DropNew) {
     EXPECT_FALSE(didTask3);
 }
 
-class FullQueue {
-    std::mutex mutex;
-    std::condition_variable cv;
-
-    enum class State {
-        FILLING,
-        FULL,
-        EXITING
-    };
-
-    State state;
-    std::vector<task<void>> tasks;
-
-public:
-    explicit FullQueue(worker_pool::pool& pool)
-        : state(State::FILLING) {
-        unsigned int runningTasks = 0;
-        // Add tasks to make all thread busy.
-        for (unsigned int i = 1; i <= pool.get_target_parallelism(); ++i) {
-            tasks.emplace_back(pool.add([&] {
-                std::unique_lock lock(mutex);
-                ++runningTasks;
-                printf("FullQueue thread-occupying task started (runningTasks = %d)\n", runningTasks);
-                fflush(stdout);
-                cv.notify_all();
-                cv.wait(lock, [&] {
-                    return state == State::EXITING;
-                });
-                printf("FullQueue task exiting\n");
-                fflush(stdout);
-            }));
-        }
-        std::unique_lock lock(mutex);
-        cv.wait(lock, [&] { return runningTasks == pool.get_target_parallelism(); });
-
-        // Add tasks to make queue full.
-        for (unsigned int i = 1; i <= pool.get_queue_size(); ++i) {
-            tasks.emplace_back(pool.add([&, i] {
-                std::unique_lock lock(mutex);
-                printf("FullQueue queue-occupying task %d started\n", i);
-                fflush(stdout);
-                cv.notify_all();
-                cv.wait(lock, [&] {
-                    return state == State::EXITING;
-                });
-                printf("FullQueue task exiting\n");
-                fflush(stdout);
-            }));
-        }
-        state = State::FULL;
-        printf("FullQueue believes queue to be full\n");
-    }
-
-    ~FullQueue() {
-        release();
-        worker_pool::pool::wait_all(tasks);
-    }
-
-private:
-    void release() {
-        std::lock_guard lock(mutex);
-        {
-            state = State::EXITING;
-        }
-        cv.notify_all();
-    }
-};
-
 const auto SHORT_TIME = std::chrono::milliseconds(250);
 
 template<class Rep, class Period>
@@ -212,7 +164,7 @@ TEST(BoundedQueue, BlockTryAddVoid) {
     bool taskStarted = false;
     {
         auto pool = builder.build();
-        FullQueue fq(pool);
+        FullPool fq(pool);
 
         task<void> task;
         EXPECT_FALSE(pool.try_add(task, [&]{ taskStarted = true; }));
@@ -238,7 +190,7 @@ TEST(BoundedQueue, BlockTryAddNonVoid) {
     bool taskStarted = false;
     {
         auto pool = builder.build();
-        FullQueue fq(pool);
+        FullPool fq(pool);
 
         task<int> task;
         EXPECT_FALSE(pool.try_add(task, [&]{taskStarted = true; return 123; }));
@@ -264,7 +216,7 @@ TEST(BoundedQueue, DropOldTryAddVoid) {
     bool taskStarted = false;
     {
         auto pool = builder.build();
-        FullQueue fq(pool);
+        FullPool fq(pool);
 
         task<void> task;
         EXPECT_FALSE(pool.try_add(task, [&]{ taskStarted = true; }));
@@ -290,7 +242,7 @@ TEST(BoundedQueue, DropOldTryAddNonVoid) {
     bool taskStarted = false;
     {
         auto pool = builder.build();
-        FullQueue fq(pool);
+        FullPool fq(pool);
 
         task<int> task;
         EXPECT_FALSE(pool.try_add(task, [&]{taskStarted = true; return 123; }));
@@ -316,7 +268,7 @@ TEST(BoundedQueue, DropNewTryAddVoid) {
     bool taskStarted = false;
     {
         auto pool = builder.build();
-        FullQueue fq(pool);
+        FullPool fq(pool);
 
         task<void> task;
         EXPECT_FALSE(pool.try_add(task, [&]{ taskStarted = true; }));
@@ -342,7 +294,7 @@ TEST(BoundedQueue, DropNewTryAddNonVoid) {
     bool taskStarted = false;
     {
 auto pool = builder.build();
-        FullQueue fq(pool);
+        FullPool fq(pool);
 
         task<int> task;
         EXPECT_FALSE(pool.try_add(task, [&]{taskStarted = true; return 123; }));

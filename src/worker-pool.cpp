@@ -315,14 +315,7 @@ deadlockCheckLock.unlock(); \
                     FAIL_IF_WAITING_WILL_DEADLOCK(*workItem);
                     if (!allowWorkOffPoolThreads && threadOwningPool != this) {
                         PUSH_WAITING_FOR;
-                        if (executingWorkItem && threadOwningPool == this) {
-                            --readyThreads;
-                            threadsCv.notify_one();
-                        }
                         workItem->future.wait();
-                        if (executingWorkItem && threadOwningPool == this) {
-                            ++readyThreads;
-                        }
                         POP_WAITING_FOR;
                         assert(workItem->getState() != TaskState::Executing);
                         return;

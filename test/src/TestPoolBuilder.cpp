@@ -33,3 +33,9 @@ TEST(PoolBuilder, ThreadFactory) {
     } // Ensure all threads have started and joined.
     EXPECT_EQ(TARGET_THREADS + EXTRA_THREADS, count);
 }
+
+TEST(PoolBuilder, BuildTwice) {
+    pool_builder b;
+    (void)b.build();
+    EXPECT_ANY_THROW((void)b.build());
+}
