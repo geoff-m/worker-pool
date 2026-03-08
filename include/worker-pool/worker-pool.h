@@ -402,8 +402,7 @@ namespace worker_pool {
 
         /**
          * Destroys the pool.
-         * Shuts down the pool (see pool::shutDown()),
-         * then waits for all work previously added to the pool to finish.
+         * Shuts down the pool, then waits for all work previously added to the pool to finish.
          */
         ~pool();
 
@@ -415,6 +414,12 @@ namespace worker_pool {
          * @param cancelUnstarted Whether unstarted pool tasks should be canceled.
          */
         void shut_down(bool cancelUnstarted = false);
+
+        /**
+         * Gets a Boolean value indicating whether the pool has been shut down.
+         * @return True if the pool has shut down, otherwise false.
+         */
+        [[nodiscard]] bool is_shut_down() const;
 
         [[nodiscard]] std::string get_name() const;
 

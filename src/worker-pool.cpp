@@ -110,6 +110,10 @@ namespace worker_pool {
         threadsCv.notify_all();
     }
 
+    bool pool::is_shut_down() const {
+        return stopping.load(std::memory_order::acquire);
+    }
+
     std::string pool::get_name() const {
         return name;
     }
