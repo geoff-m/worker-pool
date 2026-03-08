@@ -862,7 +862,7 @@ namespace worker_pool {
             this->allowWorkOffPoolThreads = allowWorkOffPoolThreads;
         }
 
-        [[nodiscard]] bool allow_work_off_pool_threads() const {
+        [[nodiscard]] bool get_allow_work_off_pool_threads() const {
             return allowWorkOffPoolThreads;
         }
 

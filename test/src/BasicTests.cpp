@@ -9,7 +9,8 @@ TEST(BasicTests, Create0) {
     pool pool(0);
     // This should auto-detect a reasonable value for targetParallelism.
     // Verify we can at least do one task.
-    pool.add([] {});
+    pool.add([] {
+    });
 }
 
 TEST(BasicTests, Create1) {
@@ -80,7 +81,7 @@ TEST(BasicTests, BinaryVoidLambda) {
     EXPECT_EQ(X + Y, binaryVoidSideEffect);
 }
 
-void increment(int *value) {
+void increment(int* value) {
     *value += 1;
 }
 
@@ -107,7 +108,7 @@ TEST(StressTests, Parallelism) {
     const unsigned int threadCount = std::max(1u, std::thread::hardware_concurrency());
     std::cout << "Using threadCount=" << threadCount << std::endl;
     pool pool(threadCount);
-    std::vector<task<void> > futures;
+    std::vector<task<void>> futures;
     constexpr auto WAIT_MS = 1000;
     for (size_t i = 1; i <= threadCount; ++i) {
         futures.emplace_back(pool.add([=] { sleepMs(WAIT_MS); }));
@@ -131,4 +132,13 @@ TEST(BasicTests, RunSynchronouslyDuringWait) {
     const auto endTime = std::chrono::steady_clock::now();
     const auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
     EXPECT_LT(durationMs, 1500);
+}
+
+
+TEST(BasicTests, TryAdd) {
+    pool pool(1);
+    task<void> task;
+    EXPECT_TRUE(pool.try_add(task, []{}));
+    EXPECT_TRUE(pool.try_add_for(task, std::chrono::seconds(1), []{}));
+    EXPECT_TRUE(pool.try_add_until(task, std::chrono::steady_clock::now(), []{}));
 }
