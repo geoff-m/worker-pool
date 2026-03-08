@@ -1,4 +1,5 @@
 # WorkerPool
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/geoff-m/worker-pool/.github%2Fworkflows%2Fci.yml?label=Tests)
 
 WorkerPool is a thread pool. It aims to be easy to use.
 
