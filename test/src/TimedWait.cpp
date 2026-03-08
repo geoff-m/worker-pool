@@ -136,17 +136,18 @@ TEST(TimedWait, TimeoutUntilDone) {
 
 TEST(TimedWait, NestedWait) {
     pool pool(2);
-    auto outer = pool.add([&] {
+    auto outer = pool.add("outer", [&] {
         std::mutex mutex;
         std::condition_variable cv;
         bool done = false;
-        auto inner = pool.add([&] {
+        auto inner = pool.add("inner", [&] {
             std::unique_lock lock(mutex);
             cv.wait(lock, [&] { return done; });
         });
         inner.wait_for(seconds(1));
         done = true;
         cv.notify_one();
+        inner.wait();
     });
     outer.wait();
 }

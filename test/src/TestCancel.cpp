@@ -343,4 +343,5 @@ TEST(Cancel, CancelExecuting) {
     EXPECT_FALSE(t.try_cancel());
     done = true;
     cv.notify_one();
+    t.wait();
 }
