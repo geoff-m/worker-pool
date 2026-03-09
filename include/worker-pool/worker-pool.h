@@ -887,7 +887,7 @@ namespace worker_pool {
             return this->fullQueuePolicy;
         }
 
-        void set_thread_factory(ThreadFactoryType threadFactory) {
+        void set_thread_factory(const ThreadFactoryType& threadFactory) {
             this->threadFactory = threadFactory;
         }
 
