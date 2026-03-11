@@ -9,7 +9,7 @@ using namespace worker_pool;
 TEST(BoundedQueue, Construct) {
     pool_builder builder;
     builder.set_target_parallelism(1);
-    builder.set_queue_size(1);
+    builder.set_max_queue_size(1);
     auto pool = builder.build();
 }
 
@@ -35,7 +35,7 @@ TEST(BoundedQueue, SetPolicyDropNew) {
 TEST(BoundedQueue, Block) {
     pool_builder builder;
     builder.set_target_parallelism(1);
-    builder.set_queue_size(1);
+    builder.set_max_queue_size(1);
     std::atomic<int> finishedTasks = 0;
     constexpr auto TOTAL_TASK_COUNT = 10;
     {
@@ -58,7 +58,7 @@ TEST(BoundedQueue, DropOld) {
     pool_builder builder;
     builder.set_target_parallelism(1);
     builder.set_extra_threads(0);
-    builder.set_queue_size(1);
+    builder.set_max_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::DropOld);
     bool didTask1 = false;
     bool didTask2 = false;
@@ -103,7 +103,7 @@ TEST(BoundedQueue, DropNew) {
     pool_builder builder;
     builder.set_target_parallelism(1);
     builder.set_extra_threads(0);
-    builder.set_queue_size(1);
+    builder.set_max_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::DropNew);
     bool didTask1 = false;
     bool didTask2 = false;
@@ -159,7 +159,7 @@ TEST(BoundedQueue, BlockTryAddVoid) {
     pool_builder builder;
     builder.set_target_parallelism(1);
     builder.set_extra_threads(0);
-    builder.set_queue_size(1);
+    builder.set_max_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::Block);
     bool taskStarted = false;
     {
@@ -185,7 +185,7 @@ TEST(BoundedQueue, BlockTryAddNonVoid) {
     pool_builder builder;
     builder.set_target_parallelism(1);
     builder.set_extra_threads(0);
-    builder.set_queue_size(1);
+    builder.set_max_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::Block);
     bool taskStarted = false;
     {
@@ -211,7 +211,7 @@ TEST(BoundedQueue, DropOldTryAddVoid) {
     pool_builder builder;
     builder.set_target_parallelism(1);
     builder.set_extra_threads(0);
-    builder.set_queue_size(1);
+    builder.set_max_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::DropOld);
     bool taskStarted = false;
     {
@@ -237,7 +237,7 @@ TEST(BoundedQueue, DropOldTryAddNonVoid) {
     pool_builder builder;
     builder.set_target_parallelism(1);
     builder.set_extra_threads(0);
-    builder.set_queue_size(1);
+    builder.set_max_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::DropOld);
     bool taskStarted = false;
     {
@@ -263,7 +263,7 @@ TEST(BoundedQueue, DropNewTryAddVoid) {
     pool_builder builder;
     builder.set_target_parallelism(1);
     builder.set_extra_threads(0);
-    builder.set_queue_size(1);
+    builder.set_max_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::DropNew);
     bool taskStarted = false;
     {
@@ -289,7 +289,7 @@ TEST(BoundedQueue, DropNewTryAddNonVoid) {
     pool_builder builder;
     builder.set_target_parallelism(1);
     builder.set_extra_threads(0);
-    builder.set_queue_size(1);
+    builder.set_max_queue_size(1);
     builder.set_full_queue_policy(FullQueuePolicy::DropNew);
     bool taskStarted = false;
     {

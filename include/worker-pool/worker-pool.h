@@ -30,6 +30,10 @@ concept is_thread_factory = requires(T factory)
 namespace worker_pool {
     void log([[maybe_unused]] const char* format...);
 
+    /**
+     * Exception that is thrown when a deadlock is detected,
+     * if deadlock detection is enabled.
+     */
     class deadlock_exception : public std::runtime_error {
     public:
         explicit deadlock_exception(const std::string& message)
@@ -37,6 +41,9 @@ namespace worker_pool {
         }
     };
 
+    /**
+     * Exception that is thrown when trying to get the result of a task that was canceled.
+     */
     class canceled_exception : public std::runtime_error {
     public:
         explicit canceled_exception()
@@ -80,8 +87,7 @@ namespace worker_pool {
 
     /**
      * A thread pool to which tasks can be added as callbacks.
-     * The pool eventually executes all tasks ever added to it.
-     * The pool tends to begin executing tasks in FIFO order, but this is not guaranteed.
+     * The pool tends to begin executing tasks in FIFO order, but this is not precisely guaranteed.
      */
     class pool {
         class WorkItem;
@@ -186,14 +192,14 @@ namespace worker_pool {
 #endif
 
     public:
-        static std::function<std::thread(const std::function<void()>&)> defaultThreadFactory;
+        static std::function<std::thread(const std::function<void()>&)> default_thread_factory;
 
         /**
          * Creates a new pool.
          * @param name The name for this pool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
          * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
-         * @param queueSize The size of the task queue. When the queue is full, enqueuing a new task will block.
+         * @param maxQueueSize The maximum size of the task queue. When the queue is full, enqueuing a new task will block.
          * @param fullQueuePolicy The way the pool should behave when attempting to add a task in a possibly-blocking way.
          * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
          * to create threads.
@@ -201,11 +207,11 @@ namespace worker_pool {
          */
         template<typename ThreadFactory>
             requires is_thread_factory<ThreadFactory>
-        pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads, size_t queueSize,
+        pool(std::string name, unsigned int targetParallelism, unsigned int extraThreads, size_t maxQueueSize,
              FullQueuePolicy fullQueuePolicy,
              ThreadFactory&& threadFactory,
              bool allowWorkOffPoolThreads = true)
-            : maxUnstarted(queueSize),
+            : maxUnstarted(maxQueueSize),
               fullQueuePolicy(fullQueuePolicy),
               name(name.empty() ? generatePoolName() : std::move(name)),
               targetParallelism(targetParallelism > 0 ? targetParallelism : detectParallelism()),
@@ -221,7 +227,7 @@ namespace worker_pool {
         /**
          * Creates a new pool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
-         * @param queueSize The size of the task queue. When the queue is full, enqueuing a new task will block.
+         * @param maxQueueSize The maximum size of the task queue. When the queue is full, enqueuing a new task will block.
          * @param fullQueuePolicy The way the pool should behave when attempting to add a task in a possibly-blocking way.
          * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
          * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
@@ -230,18 +236,18 @@ namespace worker_pool {
          */
         template<typename ThreadFactory>
             requires is_thread_factory<ThreadFactory>
-        pool(unsigned int targetParallelism, size_t queueSize, FullQueuePolicy fullQueuePolicy,
+        pool(unsigned int targetParallelism, size_t maxQueueSize, FullQueuePolicy fullQueuePolicy,
              unsigned int extraThreads,
              ThreadFactory&& threadFactory,
              bool allowWorkOffPoolThreads = true)
-            : pool(std::string(), targetParallelism, queueSize, fullQueuePolicy, extraThreads, threadFactory,
+            : pool(std::string(), targetParallelism, maxQueueSize, fullQueuePolicy, extraThreads, threadFactory,
                    allowWorkOffPoolThreads) {
         }
 
         /**
          * Creates a new pool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
-         * @param queueSize The size of the task queue. When the queue is full, enqueuing a new task will block. 0 for unbounded.
+         * @param maxQueueSize The maximum size of the task queue. When the queue is full, enqueuing a new task will block. 0 for unbounded.
          * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
          * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
          * to create threads.
@@ -249,10 +255,10 @@ namespace worker_pool {
          */
         template<typename ThreadFactory>
             requires is_thread_factory<ThreadFactory>
-        pool(unsigned int targetParallelism, size_t queueSize, unsigned int extraThreads,
+        pool(unsigned int targetParallelism, size_t maxQueueSize, unsigned int extraThreads,
              ThreadFactory&& threadFactory,
              bool allowWorkOffPoolThreads = true)
-            : pool(std::string(), targetParallelism, queueSize, FullQueuePolicy::Block, extraThreads, threadFactory,
+            : pool(std::string(), targetParallelism, maxQueueSize, FullQueuePolicy::Block, extraThreads, threadFactory,
                    allowWorkOffPoolThreads) {
         }
 
@@ -260,7 +266,7 @@ namespace worker_pool {
          * Creates a new pool.
          * @param name The name for this pool.
          * @param targetParallelism The target number of threads to use for simultaneous work.
-         * @param queueSize The size of the task queue. When the queue is full, enqueuing a new task will block. 0 for unbounded.
+         * @param maxQueueSize The maximum size of the task queue. When the queue is full, enqueuing a new task will block. 0 for unbounded.
          * @param extraThreads The maximum number of extra threads to create when wait is called by a pool thread.
          * @param threadFactory A callable like std::thread::thread(callback) which the pool will use
          * to create threads.
@@ -268,10 +274,10 @@ namespace worker_pool {
          */
         template<typename ThreadFactory>
             requires is_thread_factory<ThreadFactory>
-        pool(std::string name, unsigned int targetParallelism, size_t queueSize, unsigned int extraThreads,
+        pool(std::string name, unsigned int targetParallelism, size_t maxQueueSize, unsigned int extraThreads,
              ThreadFactory&& threadFactory,
              bool allowWorkOffPoolThreads = true)
-            : pool(std::move(name), targetParallelism, extraThreads, queueSize, FullQueuePolicy::Block, threadFactory,
+            : pool(std::move(name), targetParallelism, extraThreads, maxQueueSize, FullQueuePolicy::Block, threadFactory,
                    allowWorkOffPoolThreads) {
         }
 
@@ -354,7 +360,7 @@ namespace worker_pool {
         pool(const std::string& name, unsigned int targetParallelism, unsigned int extraThreads,
              bool allowWorkOffPoolThreads = true) : pool(
             name, targetParallelism, extraThreads,
-            defaultThreadFactory,
+            default_thread_factory,
             allowWorkOffPoolThreads) {
         }
 
@@ -367,7 +373,7 @@ namespace worker_pool {
         pool(unsigned int targetParallelism, unsigned int extraThreads, bool allowWorkOffPoolThreads = true) : pool(
             "",
             targetParallelism, extraThreads,
-            defaultThreadFactory,
+            default_thread_factory,
             allowWorkOffPoolThreads) {
         }
 
@@ -421,6 +427,10 @@ namespace worker_pool {
          */
         [[nodiscard]] bool is_shut_down() const;
 
+        /**
+         * Gets the name assigned to or generated for this pool.
+         * @return The name of this pool
+         */
         [[nodiscard]] std::string get_name() const;
 
         /**
@@ -582,15 +592,13 @@ namespace worker_pool {
         }
 
         /**
-         * Blocks until the pool has no current or pending work,
-         * or until the pool begins to shut down.
+         * Blocks until the pool has no current or pending work.
          */
         void await_idle_pool();
 
         /**
          * Blocks until the pool has no current or pending work,
-         * or until the pool begins to shut down,
-         * or until the given timeout elapses
+         * or until the given timeout elapses.
          * @param timeout The time to wait.
          * @return True if the pool is idle, otherwise false.
          */
@@ -601,8 +609,7 @@ namespace worker_pool {
 
         /**
          * Blocks until the pool has no current or pending work,
-         * or until the pool begins to shut down,
-         * or until the given timeout elapses
+         * or until the given timeout elapses.
          * @param timeout The deadline to await.
          * @return True if the pool is idle, otherwise false.
          */
@@ -820,10 +827,23 @@ namespace worker_pool {
             return naive_wait_all_until(tasks.begin(), tasks.end(), timeout);
         }
 
+        /**
+         * Gets the target degree of parallelism of this pool.
+         * @return The target degree of parallelism of this pool.
+         */
         [[nodiscard]] unsigned int get_target_parallelism() const;
 
-        [[nodiscard]] size_t get_queue_size() const;
+        /**
+         * Gets the maximum queue size of this pool.
+         * @return The maximum queue size of this pool.
+         */
+        [[nodiscard]] size_t get_max_queue_size() const;
 
+        /**
+         * Gets the policy describing how this pool
+         * handles adding a task while the queue is full.
+         * @return The full queue policy of this pool.
+         */
         [[nodiscard]] FullQueuePolicy get_full_queue_policy() const;
     };
 
@@ -832,7 +852,7 @@ namespace worker_pool {
         unsigned int targetParallelism = 0;
         std::optional<unsigned int> extraThreads;
         bool allowWorkOffPoolThreads = true;
-        size_t queueSize = 0;
+        size_t maxQueueSize = 0;
         FullQueuePolicy fullQueuePolicy = FullQueuePolicy::Block;
         using ThreadFactoryType = std::function<std::thread(const std::function<void()>&)>;
         std::optional<ThreadFactoryType> threadFactory;
@@ -871,12 +891,12 @@ namespace worker_pool {
             return allowWorkOffPoolThreads;
         }
 
-        void set_queue_size(unsigned int queueSize) {
-            this->queueSize = queueSize;
+        void set_max_queue_size(unsigned int maxQueueSize) {
+            this->maxQueueSize = maxQueueSize;
         }
 
-        [[nodiscard]] unsigned int get_queue_size() const {
-            return this->queueSize;
+        [[nodiscard]] unsigned int get_max_queue_size() const {
+            return this->maxQueueSize;
         }
 
         void set_full_queue_policy(FullQueuePolicy fullQueuePolicy) {
@@ -900,8 +920,8 @@ namespace worker_pool {
                 throw std::runtime_error("This builder has already built a pool");
             builtPool = true;
             return pool(name, targetParallelism, extraThreads.value_or(targetParallelism),
-                        queueSize, fullQueuePolicy,
-                        threadFactory.value_or(pool::defaultThreadFactory),
+                        maxQueueSize, fullQueuePolicy,
+                        threadFactory.value_or(pool::default_thread_factory),
                         allowWorkOffPoolThreads);
         }
     };

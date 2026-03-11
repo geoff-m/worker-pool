@@ -23,7 +23,7 @@ FullPool::FullPool(worker_pool::pool& pool, bool fillQueue)
 
     if (fillQueue) {
         // Add tasks to make queue full.
-        for (unsigned int i = 1; i <= pool.get_queue_size(); ++i) {
+        for (unsigned int i = 1; i <= pool.get_max_queue_size(); ++i) {
             tasks.emplace_back(pool.add([&, i] {
                 std::unique_lock lock(mutex);
                 printf("FullQueue queue-occupying task %d started\n", i);

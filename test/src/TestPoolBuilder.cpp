@@ -44,8 +44,8 @@ TEST(PoolBuilder, AllowWorkOffPoolThreads) {
 TEST(PoolBuilder, QueueSize) {
     pool_builder b;
     constexpr auto QUEUE_SIZE = 98765;
-    b.set_queue_size(QUEUE_SIZE);
-    EXPECT_EQ(QUEUE_SIZE, b.get_queue_size());
+    b.set_max_queue_size(QUEUE_SIZE);
+    EXPECT_EQ(QUEUE_SIZE, b.get_max_queue_size());
 }
 
 void testFullQueuePolicy(FullQueuePolicy fqp) {

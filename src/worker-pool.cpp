@@ -84,7 +84,7 @@ namespace worker_pool {
         return get_name() + "_task" + std::to_string(addedTaskCount++);
     }
 
-    std::function<std::thread(const std::function<void()>&)> pool::defaultThreadFactory
+    std::function<std::thread(const std::function<void()>&)> pool::default_thread_factory
             = [](const std::function<void()>& callback) { return std::thread(callback); };
 
     pool::~pool() {
@@ -143,7 +143,7 @@ namespace worker_pool {
         return targetParallelism;
     }
 
-    size_t pool::get_queue_size() const {
+    size_t pool::get_max_queue_size() const {
         return maxUnstarted;
     }
 
