@@ -129,7 +129,7 @@ TEST(AwaitIdlePool, ReturnsAtShutDownFor) {
     pool pool(1);
     auto task = pool.add([&] { std::this_thread::sleep_for(TASK_TIME); });
     pool.shut_down();
-    pool.await_idle_pool_for(TASK_TIME+ std::chrono::seconds(1));
+    pool.await_idle_pool_for(TASK_TIME + std::chrono::seconds(1));
 }
 
 TEST(AwaitIdlePool, Pipeline) {
